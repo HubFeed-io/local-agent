@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  hubfeed-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hubfeed-agent
+    ports:
+      - "8080:8080"
+    volumes:
+      # Persistent storage for configuration and avatars
+      - ./data:/app/data
+      # Persistent storage for logs
+      - ./logs:/app/logs
+    environment:
+      # Authentication credentials (change these!)
+      - AGENT_UI_USERNAME=${AGENT_UI_USERNAME:-admin}
+      - AGENT_UI_PASSWORD=${AGENT_UI_PASSWORD:-changeme}
+    restart: unless-stopped
+    networks:
+      - agent-network
+
+networks:
+  agent-network:
+    driver: bridge

@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+env/
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Data directory (contains user credentials)
+data/
+*.session
+*.session-journal
+
+# Logs
+logs/
+*.log
+
+# Environment
+.env
+.env.*
+
+# Test artifacts
+htmlcov/
+.pytest_cache/
+.coverage
+
+# Runtime artifacts
+agent.log
+anon.session
+
+# OS
+.DS_Store
+Thumbs.db

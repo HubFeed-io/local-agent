@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#08080C">
+    <title>Hubfeed Agent</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Exo+2:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/styles.css?v=2">
+</head>
+<body>
+    <!-- Login Page -->
+    <div id="login-page" class="page active">
+        <div class="login-container">
+            <!-- Atmospheric background -->
+            <div class="bg-orb bg-orb-blue"></div>
+            <div class="bg-orb bg-orb-orange"></div>
+            <div class="bg-noise"></div>
+
+            <div class="login-card">
+                <div class="logo-section">
+                    <div class="logo-icon">
+                        <span class="logo-icon-text">H</span>
+                    </div>
+                    <h1>Hubfeed Agent</h1>
+                    <p class="subtitle">Local Data Collection Agent</p>
+                </div>
+
+                <form id="login-form" class="login-form">
+                    <div class="form-group">
+                        <label for="username">Username</label>
+                        <input type="text" id="username" name="username" required autocomplete="username">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="password">Password</label>
+                        <input type="password" id="password" name="password" required autocomplete="current-password">
+                    </div>
+
+                    <div id="login-error" class="error-message"></div>
+
+                    <button type="submit" class="btn btn-primary btn-block">
+                        <span class="btn-text">Sign In</span>
+                        <span class="btn-loader"></span>
+                    </button>
+                </form>
+
+                <div class="login-footer">
+                    <p class="help-text">Default credentials: admin / changeme</p>
+                    <p class="help-text">Set <code>AGENT_UI_USERNAME</code> and <code>AGENT_UI_PASSWORD</code> to customize</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Dashboard -->
+    <div id="dashboard-page" class="page">
+        <!-- Background effects -->
+        <div class="content-bg-effects">
+            <div class="bg-orb bg-orb-blue-subtle"></div>
+            <div class="bg-orb bg-orb-purple-subtle"></div>
+        </div>
+
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <div class="header-brand">
+                    <div class="header-logo-icon">H</div>
+                    <h1 class="header-title">Hubfeed Agent</h1>
+                </div>
+                <div class="header-actions">
+                    <span id="header-agent-status" class="header-status-badge stopped">
+                        <span class="header-status-dot"></span>
+                        <span id="header-status-text">Stopped</span>
+                    </span>
+                    <span id="username-display" class="username"></span>
+                    <button id="logout-btn" class="btn btn-ghost btn-sm">Logout</button>
+                </div>
+            </div>
+            <div class="header-gradient-line"></div>
+        </header>
+
+        <!-- Tab Navigation -->
+        <nav class="tabs">
+            <button class="tab active" data-tab="setup">
+                <span class="tab-icon">&#9881;</span> Setup
+            </button>
+            <button class="tab" data-tab="avatars">
+                <span class="tab-icon">&#128100;</span> Avatars
+            </button>
+            <button class="tab" data-tab="blacklist">
+                <span class="tab-icon">&#128683;</span> Blacklist
+            </button>
+            <button class="tab" data-tab="history">
+                <span class="tab-icon">&#128203;</span> History
+            </button>
+            <button class="tab" data-tab="status">
+                <span class="tab-icon">&#9889;</span> Status
+            </button>
+        </nav>
+
+        <!-- Tab Content -->
+        <main class="content">
+            <!-- Setup Tab -->
+            <div id="setup-tab" class="tab-content active">
+                <div class="card">
+                    <div class="card-title-row">
+                        <div class="card-icon card-icon-blue">&#9881;</div>
+                        <h2>Configuration</h2>
+                    </div>
+                    <form id="config-form">
+                        <div class="form-group">
+                            <label for="agent-token">Agent Token</label>
+                            <input type="text" id="agent-token" placeholder="Your agent token" required>
+                        </div>
+
+                        <div id="config-error" class="error-message"></div>
+                        <div id="config-success" class="success-message"></div>
+
+                        <button type="submit" class="btn btn-primary">Save Configuration</button>
+                    </form>
+                </div>
+
+                <div class="card">
+                    <div class="card-title-row">
+                        <div class="card-icon card-icon-purple">&#9654;</div>
+                        <h2>Agent Control</h2>
+                    </div>
+                    <div class="control-buttons">
+                        <button id="start-agent-btn" class="btn btn-success">Start Agent</button>
+                        <button id="stop-agent-btn" class="btn btn-destructive">Stop Agent</button>
+                    </div>
+                    <div id="control-message" class="info-message"></div>
+                </div>
+            </div>
+
+            <!-- Avatars Tab -->
+            <div id="avatars-tab" class="tab-content">
+                <div class="card">
+                    <div class="card-header">
+                        <h2>Telegram Avatars</h2>
+                        <button id="add-avatar-btn" class="btn btn-primary btn-sm">+ Add Avatar</button>
+                    </div>
+
+                    <div id="avatars-list" class="avatars-list">
+                        <div class="loading">Loading avatars...</div>
+                    </div>
+                </div>
+
+                <!-- Avatar Settings Modal -->
+                <div id="avatar-settings-modal" class="modal">
+                    <div class="modal-content modal-large">
+                        <div class="modal-header">
+                            <h3>Configure: <span id="settings-avatar-name"></span></h3>
+                            <button class="modal-close" onclick="closeAvatarSettingsModal()">&times;</button>
+                        </div>
+
+                        <div class="modal-body">
+                            <div class="settings-section">
+                                <div class="section-header">
+                                    <h4>Telegram Channels & Groups</h4>
+                                    <button id="refresh-dialogs-btn" class="btn btn-secondary btn-sm">Refresh</button>
+                                </div>
+
+                                <p class="help-text">Toggle channels/groups to whitelist. Set frequency for whitelisted sources.</p>
+
+                                <!-- Filter Controls -->
+                                <div class="channel-filters">
+                                    <div class="search-wrapper">
+                                        <input type="text"
+                                               id="channel-search"
+                                               class="search-input"
+                                               placeholder="Search channels...">
+                                    </div>
+                                    <div class="filter-buttons">
+                                        <button class="filter-btn active" data-filter="all">All</button>
+                                        <button class="filter-btn" data-filter="whitelisted">Whitelisted</button>
+                                        <button class="filter-btn" data-filter="not-whitelisted">Not Whitelisted</button>
+                                    </div>
+                                </div>
+
+                                <div id="channels-list" class="channels-list">
+                                    <div class="loading">Loading channels...</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Add Avatar Modal -->
+                <div id="add-avatar-modal" class="modal">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h3>Add Telegram Avatar</h3>
+                            <button class="modal-close">&times;</button>
+                        </div>
+
+                        <div class="modal-body">
+                            <div class="auth-method-selector">
+                                <button class="auth-method-btn active" data-method="qr">QR Code</button>
+                                <button class="auth-method-btn" data-method="phone">Phone Number</button>
+                            </div>
+
+                            <!-- QR Code Auth -->
+                            <div id="qr-auth" class="auth-method active">
+                                <div class="form-group">
+                                    <label for="qr-avatar-id">Avatar Name</label>
+                                    <input type="text" id="qr-avatar-id" placeholder="e.g., my-telegram-1">
+                                </div>
+
+                                <div id="qr-code-display" class="qr-code-container"></div>
+
+                                <button id="start-qr-auth-btn" class="btn btn-primary btn-block">Generate QR Code</button>
+                                <button id="cancel-qr-auth-btn" class="btn btn-secondary btn-block" style="display:none;">Cancel</button>
+                            </div>
+
+                            <!-- Phone Auth -->
+                            <div id="phone-auth" class="auth-method">
+                                <div class="form-group">
+                                    <label for="phone-avatar-id">Avatar Name</label>
+                                    <input type="text" id="phone-avatar-id" placeholder="e.g., my-telegram-1">
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="phone-number">Phone Number</label>
+                                    <input type="tel" id="phone-number" placeholder="+1234567890">
+                                </div>
+
+                                <button id="start-phone-auth-btn" class="btn btn-primary btn-block">Send Code</button>
+
+                                <div id="phone-code-section" style="display:none;">
+                                    <div class="form-group">
+                                        <label for="phone-code">Verification Code</label>
+                                        <input type="text" id="phone-code" placeholder="12345">
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="phone-password">2FA Password (if enabled)</label>
+                                        <input type="password" id="phone-password" placeholder="Optional">
+                                    </div>
+
+                                    <button id="complete-phone-auth-btn" class="btn btn-primary btn-block">Verify</button>
+                                </div>
+                            </div>
+
+                            <div id="avatar-error" class="error-message"></div>
+                            <div id="avatar-success" class="success-message"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Blacklist Tab -->
+            <div id="blacklist-tab" class="tab-content">
+                <div class="card">
+                    <div class="card-title-row">
+                        <div class="card-icon card-icon-orange">&#128683;</div>
+                        <h2>Content Filtering</h2>
+                    </div>
+                    <p class="help-text">Add keywords or patterns to filter out unwanted content locally.</p>
+
+                    <div class="form-group">
+                        <label for="blacklist-keywords">Keywords (one per line)</label>
+                        <textarea id="blacklist-keywords" rows="10" placeholder="spam&#10;advertisement&#10;promotional"></textarea>
+                    </div>
+
+                    <div id="blacklist-error" class="error-message"></div>
+                    <div id="blacklist-success" class="success-message"></div>
+
+                    <button id="save-blacklist-btn" class="btn btn-primary">Save Blacklist</button>
+                </div>
+            </div>
+
+            <!-- History Tab -->
+            <div id="history-tab" class="tab-content">
+                <div class="card">
+                    <div class="card-header">
+                        <h2>Audit History</h2>
+                        <div class="history-controls">
+                            <input type="text"
+                                   id="history-search"
+                                   class="search-input"
+                                   placeholder="Search events...">
+                            <button id="refresh-history-btn" class="btn btn-secondary btn-sm">Refresh</button>
+                        </div>
+                    </div>
+
+                    <!-- Event Type Filters -->
+                    <div class="history-filters">
+                        <button class="history-filter-btn active" data-filter="all">All</button>
+                        <button class="history-filter-btn" data-filter="job_execution">Jobs</button>
+                        <button class="history-filter-btn" data-filter="avatar">Avatars</button>
+                        <button class="history-filter-btn" data-filter="auth">Auth</button>
+                        <button class="history-filter-btn" data-filter="source">Channels</button>
+                        <button class="history-filter-btn" data-filter="config">Config</button>
+                    </div>
+
+                    <!-- Status Filters -->
+                    <div class="history-status-filters">
+                        <label class="status-filter-label">
+                            <input type="checkbox" id="filter-success" checked> Success
+                        </label>
+                        <label class="status-filter-label">
+                            <input type="checkbox" id="filter-failed" checked> Failed
+                        </label>
+                    </div>
+
+                    <div id="history-list" class="history-list">
+                        <div class="loading">Loading history...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Status Tab -->
+            <div id="status-tab" class="tab-content">
+                <div class="card">
+                    <div class="card-title-row">
+                        <div class="card-icon card-icon-orange">&#9889;</div>
+                        <h2>Agent Status</h2>
+                    </div>
+                    <div id="status-display" class="status-display">
+                        <div class="loading">Loading status...</div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="/app.js?v=2"></script>
+</body>
+</html>
