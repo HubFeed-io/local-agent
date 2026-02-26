@@ -57,7 +57,7 @@ class BrowserSession:
         self.profile_path.mkdir(parents=True, exist_ok=True)
 
         headless = os.environ.get("BROWSER_HEADLESS", "true").lower() == "true"
-        headless = False
+
         self._browser = await uc.start(
             user_data_dir=str(self.profile_path),
             headless=headless,
