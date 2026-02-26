@@ -63,6 +63,7 @@ class SourceAdd(BaseModel):
     id: str
     name: str
     type: str = "channel"
+    username: Optional[str] = None
     frequency_seconds: int = 300
 
 
@@ -238,7 +239,7 @@ async def telegram_phone_auth_start(data: TelegramPhoneAuthStart):
 @router.post("/avatars/telegram/phone/complete")
 async def telegram_phone_auth_complete(data: TelegramPhoneAuthComplete):
     """Complete Telegram phone authentication."""
-    config_manager, hubfeed_client, _, _, _, platform_manager = get_globals()
+    config_manager, hubfeed_client, _, _, agent_loop, platform_manager = get_globals()
     telegram_handler = platform_manager.get_handler('telegram')
     
     try:
@@ -256,7 +257,14 @@ async def telegram_phone_auth_complete(data: TelegramPhoneAuthComplete):
                 await hubfeed_client.sync_avatars([result["avatar"]])
             except Exception as e:
                 logger.warning(f"Failed to sync avatar with Hubfeed: {e}")
-        
+
+            # Refresh agent config from backend
+            if agent_loop and agent_loop.is_running:
+                try:
+                    await agent_loop.refresh_config()
+                except Exception as e:
+                    logger.warning(f"Failed to refresh config after auth: {e}")
+
         return result
     except Exception as e:
         logger.error(f"Phone auth complete failed: {e}")
@@ -293,7 +301,7 @@ async def telegram_qr_auth_start(data: TelegramQRAuthStart):
 @router.get("/avatars/telegram/qr/status/{avatar_id}")
 async def telegram_qr_auth_status(avatar_id: str, timeout: int = 30):
     """Check QR code authentication status."""
-    config_manager, hubfeed_client, _, _, _, platform_manager = get_globals()
+    config_manager, hubfeed_client, _, _, agent_loop, platform_manager = get_globals()
     telegram_handler = platform_manager.get_handler('telegram')
     
     try:
@@ -305,7 +313,14 @@ async def telegram_qr_auth_status(avatar_id: str, timeout: int = 30):
                 await hubfeed_client.sync_avatars([result["avatar"]])
             except Exception as e:
                 logger.warning(f"Failed to sync avatar with Hubfeed: {e}")
-        
+
+            # Refresh agent config from backend
+            if agent_loop and agent_loop.is_running:
+                try:
+                    await agent_loop.refresh_config()
+                except Exception as e:
+                    logger.warning(f"Failed to refresh config after auth: {e}")
+
         return result
     except Exception as e:
         logger.error(f"QR auth status check failed: {e}")
@@ -324,6 +339,136 @@ async def telegram_qr_auth_cancel(avatar_id: str):
     except Exception as e:
         logger.error(f"QR auth cancel failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# --- Browser authentication endpoints ---
+
+class BrowserAuthStart(BaseModel):
+    avatar_id: str
+    platform: str       # 'x', etc.
+    username: str
+    password: str
+
+
+class BrowserChallengeResponse(BaseModel):
+    avatar_id: str
+    response: str       # 2FA code, phone number, etc.
+
+
+@router.get("/platforms/browser/available")
+async def get_available_browser_platforms():
+    """List available browser platforms (from backend login flows)."""
+    config_manager, _, _, _, _, _ = get_globals()
+    browser_config = config_manager.get_platform_config("browser")
+
+    if not browser_config or not browser_config.get("login_flows"):
+        return {"platforms": []}
+
+    platforms = []
+    for flow in browser_config["login_flows"]:
+        platforms.append({
+            "platform": flow.get("platform") if isinstance(flow, dict) else flow.platform,
+            "display_name": flow.get("display_name") if isinstance(flow, dict) else flow.display_name,
+            "credential_fields": flow.get("credential_fields", ["username", "password"]) if isinstance(flow, dict) else getattr(flow, 'credential_fields', ["username", "password"]),
+        })
+
+    return {"platforms": platforms}
+
+
+@router.post("/avatars/browser/auth/start")
+async def browser_auth_start(data: BrowserAuthStart):
+    """Start browser authentication for a new avatar."""
+    config_manager, hubfeed_client, _, executor, agent_loop, _ = get_globals()
+
+    try:
+        result = await executor.browser_handler.start_auth(
+            data.avatar_id,
+            data.platform,
+            {"username": data.username, "password": data.password}
+        )
+
+        # Sync avatar with backend on success
+        if config_manager.is_configured() and result.get("status") == "authenticated":
+            try:
+                avatars = config_manager.get_avatars()
+                await hubfeed_client.sync_avatars(avatars)
+            except Exception as e:
+                logger.warning(f"Failed to sync avatar with Hubfeed: {e}")
+
+            # Refresh agent config from backend
+            if agent_loop and agent_loop.is_running:
+                try:
+                    await agent_loop.refresh_config()
+                except Exception as e:
+                    logger.warning(f"Failed to refresh config after auth: {e}")
+
+        return result
+    except Exception as e:
+        logger.error(f"Browser auth start failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/avatars/browser/auth/challenge")
+async def browser_auth_challenge(data: BrowserChallengeResponse):
+    """Submit challenge response (2FA, phone verification)."""
+    config_manager, hubfeed_client, _, executor, agent_loop, _ = get_globals()
+
+    try:
+        result = await executor.browser_handler.submit_challenge(
+            data.avatar_id, data.response
+        )
+
+        if config_manager.is_configured() and result.get("status") == "success":
+            try:
+                avatars = config_manager.get_avatars()
+                await hubfeed_client.sync_avatars(avatars)
+            except Exception as e:
+                logger.warning(f"Failed to sync avatars with Hubfeed: {e}")
+
+            # Refresh agent config from backend
+            if agent_loop and agent_loop.is_running:
+                try:
+                    await agent_loop.refresh_config()
+                except Exception as e:
+                    logger.warning(f"Failed to refresh config after auth: {e}")
+
+        return result
+    except Exception as e:
+        logger.error(f"Browser auth challenge failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/avatars/browser/auth/challenge/{avatar_id}")
+async def browser_get_pending_challenge(avatar_id: str):
+    """Get pending challenge info for an avatar."""
+    _, _, _, executor, _, _ = get_globals()
+
+    challenge = executor.browser_handler.get_pending_challenge(avatar_id)
+    if not challenge:
+        return {"has_challenge": False}
+
+    return {
+        "has_challenge": True,
+        "challenge_prompt": challenge.get("challenge_prompt"),
+        "step_id": challenge.get("step_id"),
+    }
+
+
+@router.post("/avatars/browser/test/{avatar_id}")
+async def browser_test_connection(avatar_id: str):
+    """Test if browser avatar is still logged in."""
+    config_manager, _, _, executor, _, _ = get_globals()
+
+    avatar = config_manager.get_avatar(avatar_id)
+    if not avatar:
+        raise HTTPException(status_code=404, detail="Avatar not found")
+
+    try:
+        session = await executor.browser_handler._get_session(avatar_id)
+        is_logged_in = await session.check_login_state()
+        return {"logged_in": is_logged_in, "avatar_id": avatar_id}
+    except Exception as e:
+        return {"logged_in": False, "avatar_id": avatar_id, "error": str(e)}
 
 
 # Blacklist endpoints
@@ -456,12 +601,15 @@ async def add_source(avatar_id: str, source: SourceAdd):
     if not avatar:
         raise HTTPException(status_code=404, detail="Avatar not found")
     
-    success = config_manager.add_source(avatar_id, {
+    source_data = {
         "id": source.id,
         "name": source.name,
         "type": source.type,
         "frequency_seconds": source.frequency_seconds
-    })
+    }
+    if source.username:
+        source_data["username"] = source.username
+    success = config_manager.add_source(avatar_id, source_data)
     
     if not success:
         raise HTTPException(status_code=400, detail="Failed to add source (may already exist)")

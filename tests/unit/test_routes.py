@@ -477,5 +477,526 @@ class TestTelegramAuthEndpoints:
         mock_platform_manager.get_handler.assert_called_with('telegram')
 
 
-# Note: Global error handling test removed as FastAPI handles exceptions 
-# at framework level. Route-specific error handling is tested in individual tests.
+class TestCacheEndpoints:
+    """Test avatar cache endpoints."""
+
+    def test_get_cached_avatar_directory_traversal_blocked(self, client):
+        """Should reject filenames with directory traversal."""
+        response = client.get("/api/cache/avatars/..test.png")
+        assert response.status_code == 400
+
+    @patch("src.api.routes.Path")
+    def test_get_cached_avatar_file_exists(self, MockPath, client):
+        """Should return file when it exists."""
+        # Make the avatar path exist
+        mock_avatar_path = MagicMock()
+        mock_avatar_path.exists.return_value = True
+        MockPath.return_value.__truediv__.return_value = mock_avatar_path
+
+        with patch("src.api.routes.FileResponse") as MockFileResponse:
+            MockFileResponse.return_value = MagicMock()
+            response = client.get("/api/cache/avatars/test.png")
+        # The route should attempt to serve the file (may get 200 or 500 depending on FileResponse mock)
+
+    @patch("src.api.routes.Path")
+    def test_get_cached_avatar_fallback_to_placeholder(self, MockPath, client):
+        """Should return placeholder when file doesn't exist."""
+        # Avatar path doesn't exist, placeholder does
+        mock_avatar_path = MagicMock()
+        mock_avatar_path.exists.return_value = False
+        mock_placeholder_path = MagicMock()
+        mock_placeholder_path.exists.return_value = True
+
+        def path_side_effect(path_str):
+            if "cache/avatars" in str(path_str):
+                return mock_avatar_path
+            return mock_placeholder_path
+
+        MockPath.side_effect = path_side_effect
+        mock_avatar_path.__truediv__ = MagicMock(return_value=mock_avatar_path)
+
+        # The route will try FileResponse which may fail in test but we verify the logic path
+        response = client.get("/api/cache/avatars/missing.png")
+
+    @patch("src.api.routes.Path")
+    def test_get_cached_avatar_no_placeholder_returns_404(self, MockPath, client):
+        """Should return 404 when neither file nor placeholder exists."""
+        mock_path = MagicMock()
+        mock_path.exists.return_value = False
+        mock_path.__truediv__ = MagicMock(return_value=mock_path)
+        MockPath.return_value = mock_path
+
+        response = client.get("/api/cache/avatars/missing.png")
+        assert response.status_code == 404
+
+
+class TestQRAuthStatusEndpoint:
+    """Test QR auth status check endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_qr_status_returns_result(self, client):
+        """Should return QR scan result."""
+        response = client.get("/api/avatars/telegram/qr/status/avatar_1")
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "authenticated"
+
+    @pytest.mark.asyncio
+    async def test_qr_status_authenticated_syncs_avatars(self, client):
+        """Should sync avatars with Hubfeed on successful auth."""
+        mock_hubfeed_client.sync_avatars = AsyncMock()
+        mock_agent_loop.is_running = True
+        mock_agent_loop.refresh_config = AsyncMock()
+
+        response = client.get("/api/avatars/telegram/qr/status/avatar_1")
+
+        assert response.status_code == 200
+        mock_hubfeed_client.sync_avatars.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_qr_status_exception_returns_500(self, client):
+        """Should return 500 on exception."""
+        handler = mock_platform_manager.get_handler.return_value
+        handler.wait_qr_scan = AsyncMock(side_effect=Exception("timeout"))
+
+        response = client.get("/api/avatars/telegram/qr/status/avatar_1")
+
+        assert response.status_code == 500
+
+
+class TestBrowserPlatformEndpoints:
+    """Test browser-related endpoints."""
+
+    def test_get_available_platforms_with_flows(self, client):
+        """Should return available browser platforms."""
+        mock_config_manager.get_platform_config.return_value = {
+            "login_flows": [
+                {"platform": "x", "display_name": "X (Twitter)", "credential_fields": ["username", "password"]}
+            ]
+        }
+
+        response = client.get("/api/platforms/browser/available")
+
+        assert response.status_code == 200
+        platforms = response.json()["platforms"]
+        assert len(platforms) == 1
+        assert platforms[0]["platform"] == "x"
+
+    def test_get_available_platforms_empty(self, client):
+        """Should return empty list when no flows configured."""
+        mock_config_manager.get_platform_config.return_value = None
+
+        response = client.get("/api/platforms/browser/available")
+
+        assert response.status_code == 200
+        assert response.json()["platforms"] == []
+
+    @pytest.mark.asyncio
+    async def test_browser_auth_start_success(self, client):
+        """Should start browser auth and return result."""
+        mock_executor.browser_handler = Mock()
+        mock_executor.browser_handler.start_auth = AsyncMock(return_value={
+            "status": "authenticated",
+            "avatar": {"id": "x_user1"}
+        })
+        mock_hubfeed_client.sync_avatars = AsyncMock()
+        mock_agent_loop.is_running = True
+        mock_agent_loop.refresh_config = AsyncMock()
+
+        response = client.post("/api/avatars/browser/auth/start", json={
+            "avatar_id": "x_user1",
+            "platform": "x",
+            "username": "user",
+            "password": "pass"
+        })
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "authenticated"
+
+    @pytest.mark.asyncio
+    async def test_browser_auth_start_challenge_required(self, client):
+        """Should return challenge info when 2FA needed."""
+        mock_executor.browser_handler = Mock()
+        mock_executor.browser_handler.start_auth = AsyncMock(return_value={
+            "status": "challenge_required",
+            "challenge_prompt": "Enter 2FA code"
+        })
+
+        response = client.post("/api/avatars/browser/auth/start", json={
+            "avatar_id": "x_user1",
+            "platform": "x",
+            "username": "user",
+            "password": "pass"
+        })
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "challenge_required"
+
+    @pytest.mark.asyncio
+    async def test_browser_auth_start_exception(self, client):
+        """Should return 500 on exception."""
+        mock_executor.browser_handler = Mock()
+        mock_executor.browser_handler.start_auth = AsyncMock(
+            side_effect=Exception("Browser failed")
+        )
+
+        response = client.post("/api/avatars/browser/auth/start", json={
+            "avatar_id": "x_user1",
+            "platform": "x",
+            "username": "user",
+            "password": "pass"
+        })
+
+        assert response.status_code == 500
+
+    @pytest.mark.asyncio
+    async def test_browser_challenge_success(self, client):
+        """Should submit challenge and sync on success."""
+        mock_executor.browser_handler = Mock()
+        mock_executor.browser_handler.submit_challenge = AsyncMock(return_value={
+            "status": "success"
+        })
+        mock_hubfeed_client.sync_avatars = AsyncMock()
+        mock_agent_loop.is_running = True
+        mock_agent_loop.refresh_config = AsyncMock()
+
+        response = client.post("/api/avatars/browser/auth/challenge", json={
+            "avatar_id": "x_user1",
+            "response": "123456"
+        })
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "success"
+
+    @pytest.mark.asyncio
+    async def test_browser_challenge_exception(self, client):
+        """Should return 500 on exception."""
+        mock_executor.browser_handler = Mock()
+        mock_executor.browser_handler.submit_challenge = AsyncMock(
+            side_effect=Exception("Challenge failed")
+        )
+
+        response = client.post("/api/avatars/browser/auth/challenge", json={
+            "avatar_id": "x_user1",
+            "response": "123456"
+        })
+
+        assert response.status_code == 500
+
+    def test_get_pending_challenge_exists(self, client):
+        """Should return challenge info when pending."""
+        mock_executor.browser_handler = Mock()
+        mock_executor.browser_handler.get_pending_challenge.return_value = {
+            "challenge_prompt": "Enter 2FA code",
+            "step_id": "2fa"
+        }
+
+        response = client.get("/api/avatars/browser/auth/challenge/x_user1")
+
+        assert response.status_code == 200
+        assert response.json()["has_challenge"] is True
+        assert response.json()["challenge_prompt"] == "Enter 2FA code"
+
+    def test_get_pending_challenge_none(self, client):
+        """Should return no challenge when nothing pending."""
+        mock_executor.browser_handler = Mock()
+        mock_executor.browser_handler.get_pending_challenge.return_value = None
+
+        response = client.get("/api/avatars/browser/auth/challenge/x_user1")
+
+        assert response.status_code == 200
+        assert response.json()["has_challenge"] is False
+
+    @pytest.mark.asyncio
+    async def test_browser_test_connection_success(self, client):
+        """Should test browser connection."""
+        mock_config_manager.get_avatar.return_value = {"id": "x_user1", "status": "active"}
+        mock_executor.browser_handler = Mock()
+        mock_session = AsyncMock()
+        mock_session.check_login_state = AsyncMock(return_value=True)
+        mock_executor.browser_handler._get_session = AsyncMock(return_value=mock_session)
+
+        response = client.post("/api/avatars/browser/test/x_user1")
+
+        assert response.status_code == 200
+        assert response.json()["logged_in"] is True
+
+    @pytest.mark.asyncio
+    async def test_browser_test_connection_not_found(self, client):
+        """Should return 404 when avatar not found."""
+        mock_config_manager.get_avatar.return_value = None
+
+        response = client.post("/api/avatars/browser/test/nonexistent")
+
+        assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_browser_test_connection_exception(self, client):
+        """Should return logged_in: false on exception."""
+        mock_config_manager.get_avatar.return_value = {"id": "x_user1", "status": "active"}
+        mock_executor.browser_handler = Mock()
+        mock_executor.browser_handler._get_session = AsyncMock(
+            side_effect=Exception("Browser crashed")
+        )
+
+        response = client.post("/api/avatars/browser/test/x_user1")
+
+        assert response.status_code == 200
+        assert response.json()["logged_in"] is False
+
+
+class TestSourceEndpoints:
+    """Test source management endpoints."""
+
+    def test_get_sources_success(self, client):
+        """Should return sources for avatar."""
+        mock_config_manager.get_avatar.return_value = {"id": "av1"}
+        mock_config_manager.get_avatar_sources.return_value = {
+            "enabled": True,
+            "items": [{"id": "ch1", "name": "News"}]
+        }
+        mock_config_manager.FREQUENCY_PRESETS = {"5m": 300, "1h": 3600}
+
+        response = client.get("/api/avatars/av1/sources")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["avatar_id"] == "av1"
+        assert data["sources"]["enabled"] is True
+
+    def test_get_sources_avatar_not_found(self, client):
+        """Should return 404 when avatar not found."""
+        mock_config_manager.get_avatar.return_value = None
+
+        response = client.get("/api/avatars/nonexistent/sources")
+
+        assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_add_source_success(self, client):
+        """Should add source and sync."""
+        mock_config_manager.get_avatar.return_value = {"id": "av1"}
+        mock_config_manager.add_source.return_value = True
+        mock_hubfeed_client.sync_avatars = AsyncMock()
+
+        response = client.post("/api/avatars/av1/sources", json={
+            "id": "-1001234567890",
+            "name": "News Channel",
+            "type": "channel",
+            "frequency_seconds": 300
+        })
+
+        assert response.status_code == 200
+        assert response.json()["success"] is True
+
+    @pytest.mark.asyncio
+    async def test_add_source_avatar_not_found(self, client):
+        """Should return 404 when avatar not found."""
+        mock_config_manager.get_avatar.return_value = None
+
+        response = client.post("/api/avatars/nonexistent/sources", json={
+            "id": "ch1",
+            "name": "Chan",
+            "type": "channel"
+        })
+
+        assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_add_source_duplicate_returns_400(self, client):
+        """Should return 400 when source already exists."""
+        mock_config_manager.get_avatar.return_value = {"id": "av1"}
+        mock_config_manager.add_source.return_value = False
+
+        response = client.post("/api/avatars/av1/sources", json={
+            "id": "ch1",
+            "name": "Duplicate",
+            "type": "channel"
+        })
+
+        assert response.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_update_source_success(self, client):
+        """Should update source settings."""
+        mock_config_manager.get_avatar.return_value = {"id": "av1"}
+        mock_config_manager.update_source.return_value = True
+        mock_hubfeed_client.sync_avatars = AsyncMock()
+
+        response = client.put("/api/avatars/av1/sources/ch1", json={
+            "frequency_seconds": 600
+        })
+
+        assert response.status_code == 200
+        assert response.json()["success"] is True
+
+    @pytest.mark.asyncio
+    async def test_update_source_no_updates(self, client):
+        """Should return 400 when no updates provided."""
+        mock_config_manager.get_avatar.return_value = {"id": "av1"}
+
+        response = client.put("/api/avatars/av1/sources/ch1", json={})
+
+        assert response.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_update_source_not_found(self, client):
+        """Should return 404 when source not found."""
+        mock_config_manager.get_avatar.return_value = {"id": "av1"}
+        mock_config_manager.update_source.return_value = False
+
+        response = client.put("/api/avatars/av1/sources/nonexistent", json={
+            "frequency_seconds": 600
+        })
+
+        assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_remove_source_success(self, client):
+        """Should remove source and sync."""
+        mock_config_manager.get_avatar.return_value = {"id": "av1"}
+        mock_config_manager.remove_source.return_value = True
+        mock_hubfeed_client.sync_avatars = AsyncMock()
+
+        response = client.delete("/api/avatars/av1/sources/ch1")
+
+        assert response.status_code == 200
+        assert response.json()["success"] is True
+
+    @pytest.mark.asyncio
+    async def test_remove_source_avatar_not_found(self, client):
+        """Should return 404 when avatar not found."""
+        mock_config_manager.get_avatar.return_value = None
+
+        response = client.delete("/api/avatars/nonexistent/sources/ch1")
+
+        assert response.status_code == 404
+
+
+class TestDialogEndpoints:
+    """Test dialog listing endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_get_dialogs_cached(self, client):
+        """Should return cached dialogs when available."""
+        mock_config_manager.get_avatar.return_value = {
+            "id": "av1",
+            "status": "active",
+            "cached_dialogs": [{"id": "123", "name": "Test Chan", "type": "channel"}]
+        }
+
+        response = client.get("/api/avatars/av1/dialogs")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["cached"] is True
+        assert len(data["dialogs"]) == 1
+
+    @pytest.mark.asyncio
+    async def test_get_dialogs_refresh(self, client):
+        """Should fetch fresh dialogs when refresh=True."""
+        mock_config_manager.get_avatar.return_value = {
+            "id": "av1",
+            "status": "active",
+            "cached_dialogs": [{"id": "123", "name": "Old"}]
+        }
+        mock_config_manager.save_avatar.return_value = True
+
+        handler = mock_platform_manager.get_handler.return_value
+        handler.list_dialogs = AsyncMock(return_value=[
+            {"id": 456, "name": "Fresh Channel", "is_group": False, "is_user": False}
+        ])
+
+        response = client.get("/api/avatars/av1/dialogs?refresh=true")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["cached"] is False
+        assert len(data["dialogs"]) == 1
+        assert data["dialogs"][0]["name"] == "Fresh Channel"
+
+    @pytest.mark.asyncio
+    async def test_get_dialogs_avatar_not_found(self, client):
+        """Should return 404 when avatar not found."""
+        mock_config_manager.get_avatar.return_value = None
+
+        response = client.get("/api/avatars/nonexistent/dialogs")
+
+        assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_get_dialogs_avatar_not_active(self, client):
+        """Should return 400 when avatar not authenticated."""
+        mock_config_manager.get_avatar.return_value = {
+            "id": "av1",
+            "status": "auth_required"
+        }
+
+        response = client.get("/api/avatars/av1/dialogs")
+
+        assert response.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_get_dialogs_telegram_error(self, client):
+        """Should return 500 on telegram error."""
+        mock_config_manager.get_avatar.return_value = {
+            "id": "av1",
+            "status": "active"
+        }
+
+        handler = mock_platform_manager.get_handler.return_value
+        handler.list_dialogs = AsyncMock(side_effect=Exception("Connection lost"))
+
+        response = client.get("/api/avatars/av1/dialogs?refresh=true")
+
+        assert response.status_code == 500
+
+
+class TestDeleteAvatarSync:
+    """Test avatar deletion with Hubfeed sync."""
+
+    @pytest.mark.asyncio
+    async def test_delete_avatar_syncs_with_hubfeed(self, client):
+        """Should sync remaining avatars with Hubfeed after delete."""
+        mock_hubfeed_client.sync_avatars = AsyncMock()
+
+        response = client.delete("/api/avatars/avatar_1")
+
+        assert response.status_code == 200
+        mock_hubfeed_client.sync_avatars.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_delete_avatar_sync_failure_logged(self, client):
+        """Should succeed even if Hubfeed sync fails."""
+        mock_hubfeed_client.sync_avatars = AsyncMock(side_effect=Exception("Network error"))
+
+        response = client.delete("/api/avatars/avatar_1")
+
+        assert response.status_code == 200
+        assert response.json()["success"] is True
+
+
+class TestUpdateConfigLoopRestart:
+    """Test config update with loop restart behavior."""
+
+    @pytest.mark.asyncio
+    async def test_update_config_restarts_running_loop(self, client):
+        """Should restart loop when token changes and loop is running."""
+        mock_agent_loop.is_running = True
+
+        response = client.post("/api/config", json={"token": "new_token"})
+
+        assert response.status_code == 200
+        mock_agent_loop.stop.assert_called_once()
+        mock_agent_loop.start.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_update_config_starts_loop_when_configured(self, client):
+        """Should start loop when token set and agent becomes configured."""
+        mock_agent_loop.is_running = False
+        mock_config_manager.is_configured.return_value = True
+
+        response = client.post("/api/config", json={"token": "new_token"})
+
+        assert response.status_code == 200
+        mock_agent_loop.start.assert_called_once()

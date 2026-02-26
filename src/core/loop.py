@@ -70,10 +70,14 @@ class AgentLoop:
             except asyncio.CancelledError:
                 pass
         
+        # Reset state for clean restart
+        self._verified = False
+        self._last_avatar_sync = None
+
         # Cleanup
         await self.executor.cleanup()
         await self.hubfeed_client.close()
-        
+
         logger.info("Agent polling loop stopped")
     
     async def _run(self):
@@ -122,6 +126,17 @@ class AgentLoop:
             
             self._verified = True
             logger.info(f"Token verified successfully for user: {result.get('user', {}).get('email')}")
+
+            # Propagate browser login flows to handler if available
+            browser_config = self.config_manager.get_platform_config("browser")
+            if browser_config and browser_config.get("login_flows"):
+                try:
+                    self.executor.browser_handler.update_login_flows(
+                        browser_config["login_flows"]
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to update browser login flows: {e}")
+
             return True
             
         except Exception as e:
@@ -129,6 +144,16 @@ class AgentLoop:
             self._verified = False
             return False
     
+    async def refresh_config(self):
+        """Re-fetch configuration from backend without restarting the loop.
+
+        Closes the cached HTTP client (to pick up token changes) and
+        re-verifies the token, which fetches fresh platform config.
+        """
+        logger.info("Refreshing agent configuration...")
+        await self.hubfeed_client.close()
+        await self._verify_token()
+
     async def _sync_avatars(self):
         """Sync avatars with Hubfeed backend."""
         try:
@@ -175,20 +200,39 @@ class AgentLoop:
                 
                 result = await self.executor.execute_job(task)
                 
-                # Submit result back to Hubfeed
-                try:
-                    await self.hubfeed_client.submit_result(
-                        job_id=result["job_id"],
-                        avatar_id=result["avatar_id"],
-                        success=result["success"],
-                        raw_data=result.get("raw_data"),
-                        filtered_count=result.get("filtered_count", 0),
-                        error=result.get("error"),
-                        execution_ms=result["execution_ms"]
-                    )
-                except Exception as e:
-                    logger.error(f"Failed to submit result for job {result['job_id']}: {e}")
+                # Submit result back to Hubfeed (with retry)
+                max_retries = 3
+                for attempt in range(max_retries):
+                    try:
+                        await self.hubfeed_client.submit_result(
+                            job_id=result["job_id"],
+                            avatar_id=result["avatar_id"],
+                            success=result["success"],
+                            raw_data=result.get("raw_data"),
+                            filtered_count=result.get("filtered_count", 0),
+                            error=result.get("error"),
+                            execution_ms=result["execution_ms"]
+                        )
+                        break
+                    except Exception as e:
+                        if attempt < max_retries - 1:
+                            wait_time = 2 ** attempt  # 1s, 2s
+                            logger.warning(
+                                f"Failed to submit result for job {result['job_id']} "
+                                f"(attempt {attempt + 1}/{max_retries}), retrying in {wait_time}s: {e}"
+                            )
+                            await asyncio.sleep(wait_time)
+                        else:
+                            logger.error(
+                                f"Failed to submit result for job {result['job_id']} "
+                                f"after {max_retries} attempts: {e}"
+                            )
         
+            # Sync immediately if any avatar status changed during execution
+            if self.config_manager.consume_status_dirty():
+                logger.info("Avatar status changed during job execution, syncing immediately")
+                await self._sync_avatars()
+
         except Exception as e:
             logger.error(f"Error polling for tasks: {e}")
     

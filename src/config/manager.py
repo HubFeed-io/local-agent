@@ -25,7 +25,8 @@ class ConfigManager:
         self.avatar_storage = JSONStorage(self.data_dir / "avatars.json")
         self.blacklist_storage = JSONStorage(self.data_dir / "blacklist.json")
         self.history_logger = history_logger
-        
+        self._status_dirty = False
+
         # Initialize default structures
         self._ensure_defaults()
     
@@ -241,6 +242,17 @@ class ConfigManager:
         
         return success
     
+    def get_auth_failure_status(self, avatar_id: str) -> str:
+        """Return the appropriate status after an auth failure.
+
+        active → auth_required (backend will retry with a new job)
+        auth_required → failed_reauth (backend stops retrying)
+        """
+        avatar = self.get_avatar(avatar_id)
+        if avatar and avatar.get("status") == "auth_required":
+            return "failed_reauth"
+        return "auth_required"
+
     def update_avatar_status(self, avatar_id: str, status: str) -> bool:
         """Update avatar status.
         
@@ -259,7 +271,11 @@ class ConfigManager:
         avatar["status"] = status
         avatar["last_used_at"] = datetime.utcnow().isoformat() + "Z"
         success = self.save_avatar(avatar)
-        
+
+        # Mark dirty for immediate sync if status actually changed
+        if success and old_status != status:
+            self._status_dirty = True
+
         # Log audit event (in addition to the save_avatar log)
         if success and self.history_logger:
             self.history_logger.log_avatar_event(
@@ -272,7 +288,17 @@ class ConfigManager:
             )
         
         return success
-    
+
+    def consume_status_dirty(self) -> bool:
+        """Check and reset the status dirty flag.
+
+        Returns:
+            True if any avatar status changed since last check
+        """
+        dirty = self._status_dirty
+        self._status_dirty = False
+        return dirty
+
     # Blacklist methods
     
     def get_blacklist(self) -> Dict[str, Any]:
@@ -401,6 +427,8 @@ class ConfigManager:
             "last_checked_at": None,
             "last_message_id": None
         }
+        if source.get("username"):
+            new_source["username"] = source["username"]
         
         items.append(new_source)
         sources["items"] = items

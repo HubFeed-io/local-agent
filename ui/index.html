@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Exo+2:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/styles.css?v=2">
+    <link rel="stylesheet" href="/styles.css?v=3">
 </head>
 <body>
     <!-- Login Page -->
@@ -140,8 +140,18 @@
             <div id="avatars-tab" class="tab-content">
                 <div class="card">
                     <div class="card-header">
-                        <h2>Telegram Avatars</h2>
-                        <button id="add-avatar-btn" class="btn btn-primary btn-sm">+ Add Avatar</button>
+                        <h2>Avatars</h2>
+                        <div class="dropdown" id="add-avatar-dropdown">
+                            <button id="add-avatar-btn" class="btn btn-primary btn-sm">+ Add Avatar</button>
+                            <div class="dropdown-menu" id="add-avatar-menu">
+                                <button class="dropdown-item" data-platform="telegram">
+                                    <span class="dropdown-item-icon">&#128172;</span> Telegram
+                                </button>
+                                <button class="dropdown-item" data-platform="x">
+                                    <span class="dropdown-item-icon">&#120143;</span> X (Twitter)
+                                </button>
+                            </div>
+                        </div>
                     </div>
 
                     <div id="avatars-list" class="avatars-list">
@@ -250,6 +260,48 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- Browser Auth Modal (X, etc.) -->
+                <div id="browser-auth-modal" class="modal">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h3 id="browser-auth-title">Add Avatar</h3>
+                            <button class="modal-close" onclick="closeBrowserAuthModal()">&times;</button>
+                        </div>
+
+                        <div class="modal-body">
+                            <div class="form-group">
+                                <label for="browser-avatar-id">Avatar Name</label>
+                                <input type="text" id="browser-avatar-id" placeholder="e.g., my-twitter-1">
+                            </div>
+
+                            <div class="form-group">
+                                <label for="browser-username">Username / Email</label>
+                                <input type="text" id="browser-username" placeholder="your_username or email">
+                            </div>
+
+                            <div class="form-group">
+                                <label for="browser-password">Password</label>
+                                <input type="password" id="browser-password" placeholder="Your password">
+                            </div>
+
+                            <button id="start-browser-auth-btn" class="btn btn-primary btn-block">Sign In</button>
+
+                            <!-- Challenge section (hidden by default) -->
+                            <div id="browser-challenge-section" style="display:none;">
+                                <div class="info-message" id="browser-challenge-prompt"></div>
+                                <div class="form-group">
+                                    <label for="browser-challenge-input">Verification Response</label>
+                                    <input type="text" id="browser-challenge-input" placeholder="Enter code or requested info">
+                                </div>
+                                <button id="submit-browser-challenge-btn" class="btn btn-primary btn-block">Submit</button>
+                            </div>
+
+                            <div id="browser-auth-error" class="error-message"></div>
+                            <div id="browser-auth-success" class="success-message"></div>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <!-- Blacklist Tab -->
@@ -328,6 +380,6 @@
         </main>
     </div>
 
-    <script src="/app.js?v=2"></script>
+    <script src="/app.js?v=3"></script>
 </body>
 </html>

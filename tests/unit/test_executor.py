@@ -18,9 +18,10 @@ from core.executor import JobExecutor
 
 
 @pytest.fixture
-def mock_config_manager():
+def mock_config_manager(tmp_path):
     """Mock ConfigManager for testing."""
     manager = Mock()
+    manager.data_dir = str(tmp_path)
     manager.get_avatar_blacklist.return_value = {
         "keywords": [],
         "senders": [],
@@ -92,6 +93,7 @@ class TestJobExecutorInit:
         assert executor.config_manager == mock_config_manager
         assert executor.history_logger == mock_history_logger
         assert executor.telegram_handler is not None
+        assert executor.browser_handler is not None
         assert executor.blacklist_filter is not None
 
 
@@ -186,14 +188,37 @@ class TestExecuteJob:
             "command": "telegram.get_channel_info",
             "params": {"channel": "@test"}
         }
-        
+
         executor.telegram_handler.execute = AsyncMock(return_value=sample_telegram_messages)
-        
+
         result = await executor.execute_job(job)
-        
+
         assert result["success"] is True
         assert result["filtered_count"] == 0  # No filtering applied
         assert result["items_count"] == 3  # All messages returned
+
+    @pytest.mark.asyncio
+    async def test_execute_job_browser_command(self, executor, mock_history_logger):
+        """Should dispatch browser.* commands to browser_handler."""
+        job = {
+            "job_id": "job_browser_1",
+            "avatar_id": "avatar_browser_1",
+            "command": "browser.xhr_capture",
+            "params": {"url": "https://example.com"}
+        }
+
+        mock_data = [{"type": "xhr", "url": "https://api.example.com", "data": {}}]
+        executor.browser_handler.execute = AsyncMock(return_value=mock_data)
+
+        result = await executor.execute_job(job)
+
+        assert result["success"] is True
+        assert result["job_id"] == "job_browser_1"
+        assert result["items_count"] == 1
+        executor.browser_handler.execute.assert_called_once_with(
+            "avatar_browser_1", "browser.xhr_capture", {"url": "https://example.com"}
+        )
+        mock_history_logger.log_job.assert_called_once()
 
 
 class TestBlacklistFiltering:
@@ -325,18 +350,23 @@ class TestCleanup:
     async def test_cleanup_disconnects_handlers(self, executor):
         """Should disconnect platform handlers during cleanup."""
         executor.telegram_handler.disconnect_all = AsyncMock()
-        
+        executor.browser_handler.disconnect_all = AsyncMock()
+
         await executor.cleanup()
-        
+
         executor.telegram_handler.disconnect_all.assert_called_once()
-    
+        executor.browser_handler.disconnect_all.assert_called_once()
+
     @pytest.mark.asyncio
     async def test_cleanup_handles_exceptions(self, executor):
         """Should handle exceptions during cleanup gracefully."""
         executor.telegram_handler.disconnect_all = AsyncMock(
             side_effect=Exception("Disconnect failed")
         )
-        
+        executor.browser_handler.disconnect_all = AsyncMock(
+            side_effect=Exception("Browser disconnect failed")
+        )
+
         # Should not raise exception
         await executor.cleanup()
 

@@ -7,10 +7,12 @@ import time
 
 try:
     from platforms import TelegramHandler
+    from platforms.browser import BrowserHandler
     from blacklist import BlacklistFilter
     from history import HistoryLogger
 except ImportError:
     from ..platforms import TelegramHandler
+    from ..platforms.browser import BrowserHandler
     from ..blacklist import BlacklistFilter
     from ..history import HistoryLogger
 
@@ -32,7 +34,8 @@ class JobExecutor:
         
         # Initialize platform handlers
         self.telegram_handler = TelegramHandler(config_manager)
-        
+        self.browser_handler = BrowserHandler(config_manager)
+
         # Initialize blacklist filter
         self.blacklist_filter = BlacklistFilter(config_manager)
         
@@ -68,6 +71,8 @@ class JobExecutor:
             # Dispatch to appropriate platform handler
             if command.startswith("telegram."):
                 raw_data = await self.telegram_handler.execute(avatar_id, command, params)
+            elif command.startswith("browser."):
+                raw_data = await self.browser_handler.execute(avatar_id, command, params)
             else:
                 raise ValueError(f"Unknown command platform: {command}")
             
@@ -168,11 +173,16 @@ class JobExecutor:
     async def cleanup(self):
         """Clean up resources."""
         logger.info("Cleaning up job executor...")
-        
+
         # Disconnect platform handlers
         try:
             await self.telegram_handler.disconnect_all()
         except Exception as e:
             logger.error(f"Error during Telegram cleanup: {e}")
-        
+
+        try:
+            await self.browser_handler.disconnect_all()
+        except Exception as e:
+            logger.error(f"Error during browser cleanup: {e}")
+
         logger.info("Job executor cleanup complete")

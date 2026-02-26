@@ -140,6 +140,7 @@ class HistoryLogger:
         """
         # Convert to audit event format for unified logging
         details = {
+            "avatar_id": avatar_id,
             "command": command,
             "params": params,
             "items_returned": items_returned,

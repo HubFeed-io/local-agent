@@ -26,6 +26,7 @@ def mock_config_manager():
     manager.is_verified.return_value = True
     manager.get_avatars.return_value = []
     manager.get_polling_interval.return_value = 30
+    manager.get_platform_config.return_value = {}
     return manager
 
 
@@ -48,6 +49,7 @@ def mock_executor():
     executor = Mock()
     executor.execute_job = AsyncMock(return_value={
         "job_id": "test_job",
+        "avatar_id": "avatar_1",
         "success": True,
         "raw_data": [],
         "execution_ms": 100
@@ -300,14 +302,15 @@ class TestPollCycle:
         
         mock_executor.execute_job.return_value = {
             "job_id": "job_1",
+            "avatar_id": "avatar_1",
             "success": True,
             "raw_data": [],
             "filtered_count": 0,
             "execution_ms": 100
         }
-        
+
         await agent_loop._poll_cycle()
-        
+
         mock_executor.execute_job.assert_called_once_with(tasks[0])
         mock_hubfeed_client.submit_result.assert_called_once()
     
@@ -322,18 +325,19 @@ class TestPollCycle:
         agent_loop._verified = True
         agent_loop._running = True
         
-        tasks = [{"job_id": "job_1", "command": "test", "params": {}}]
+        tasks = [{"job_id": "job_1", "avatar_id": "avatar_1", "command": "test", "params": {}}]
         mock_hubfeed_client.get_tasks.return_value = tasks
-        
+
         mock_executor.execute_job.return_value = {
             "job_id": "job_1",
+            "avatar_id": "avatar_1",
             "success": True,
             "raw_data": [],
             "execution_ms": 100
         }
-        
+
         mock_hubfeed_client.submit_result.side_effect = Exception("Submit failed")
-        
+
         # Should not raise exception
         await agent_loop._poll_cycle()
     
@@ -525,11 +529,12 @@ class TestIntegration:
         mock_config_manager.get_polling_interval.return_value = 0.01  # 10ms
         
         mock_hubfeed_client.get_tasks.return_value = [
-            {"job_id": "test_job", "command": "telegram.get_messages", "params": {}}
+            {"job_id": "test_job", "avatar_id": "avatar_1", "command": "telegram.get_messages", "params": {}}
         ]
-        
+
         mock_executor.execute_job.return_value = {
             "job_id": "test_job",
+            "avatar_id": "avatar_1",
             "success": True,
             "raw_data": [],
             "execution_ms": 100
@@ -544,7 +549,6 @@ class TestIntegration:
         # Stop loop
         await loop.stop()
         
-        # Verify it ran
-        assert loop._verified is True
+        # Verify it ran (stop() resets _verified, so check calls instead)
         mock_hubfeed_client.verify_token.assert_called()
         mock_hubfeed_client.sync_avatars.assert_called()

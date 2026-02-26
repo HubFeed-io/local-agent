@@ -371,23 +371,24 @@ class TestSubmitResult:
             
             result = await client.submit_result(
                 job_id="job_123",
+                avatar_id="avatar_test",
                 success=True,
                 raw_data=raw_data,
                 filtered_count=1,
                 execution_ms=1234
             )
-        
+
         assert result["success"] is True
-        
+
         # Verify payload structure
         call_args = mock_http_client.post.call_args
         payload = call_args[1]["json"]
         assert payload["job_id"] == "job_123"
+        assert payload["avatar_id"] == "avatar_test"
         assert payload["success"] is True
         assert payload["items_count"] == 2
         assert payload["filtered_count"] == 1
-        assert payload["execution_ms"] == 1234
-        assert "timestamp" in payload
+        assert payload["execution_time_ms"] == 1234
     
     @pytest.mark.asyncio
     async def test_submit_result_failure(self, client, mock_http_response):
@@ -407,6 +408,7 @@ class TestSubmitResult:
             
             result = await client.submit_result(
                 job_id="job_456",
+                avatar_id="avatar_test",
                 success=False,
                 error=error,
                 execution_ms=500
@@ -431,6 +433,7 @@ class TestSubmitResult:
             with pytest.raises(httpx.TimeoutException):
                 await client.submit_result(
                     job_id="job_789",
+                    avatar_id="avatar_test",
                     success=True,
                     raw_data=[],
                     execution_ms=5000
@@ -518,6 +521,6 @@ class TestIntegration:
             await client.verify_token()
             await client.sync_avatars([{"id": "test"}])
             tasks = await client.get_tasks()
-            await client.submit_result("job_1", True, raw_data=[], execution_ms=100)
+            await client.submit_result("job_1", "avatar_test", True, raw_data=[], execution_ms=100)
             
             assert len(tasks) == 1

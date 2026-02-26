@@ -80,14 +80,14 @@ EOF
 
 2. **Build and start**:
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
 3. **Access the UI** at `http://localhost:8080`
 
 4. **View logs**:
 ```bash
-docker-compose logs -f hubfeed-agent
+docker logs -f hubfeed-agent
 ```
 
 5. **Stop**:
@@ -104,7 +104,7 @@ docker build -t hubfeed-agent .
 # Run
 docker run -d \
   --name hubfeed-agent \
-  -p 8080:8080 \
+  -p 8989:8989 \
   -v $(pwd)/data:/app/data \
   -v $(pwd)/logs:/app/logs \
   -e AGENT_UI_USERNAME=admin \

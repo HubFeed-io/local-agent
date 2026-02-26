@@ -131,6 +131,41 @@ class ApiClient {
         });
     }
 
+    // Browser Auth
+    async getAvailableBrowserPlatforms() {
+        return this.request('/platforms/browser/available');
+    }
+
+    async startBrowserAuth(avatarId, platform, username, password) {
+        return this.request('/avatars/browser/auth/start', {
+            method: 'POST',
+            body: JSON.stringify({
+                avatar_id: avatarId,
+                platform,
+                username,
+                password
+            })
+        });
+    }
+
+    async submitBrowserChallenge(avatarId, response) {
+        return this.request('/avatars/browser/auth/challenge', {
+            method: 'POST',
+            body: JSON.stringify({
+                avatar_id: avatarId,
+                response
+            })
+        });
+    }
+
+    async getBrowserChallengeStatus(avatarId) {
+        return this.request(`/avatars/browser/auth/challenge/${avatarId}`);
+    }
+
+    async testBrowserAvatar(avatarId) {
+        return this.request(`/avatars/browser/test/${avatarId}`, { method: 'POST' });
+    }
+
     // Blacklist
     async getBlacklist() {
         return this.request('/blacklist');
@@ -324,35 +359,73 @@ async function handleStopAgent() {
 }
 
 // ====== Avatars ======
+
+const PLATFORM_CONFIG = {
+    telegram: { icon: '&#128172;', label: 'Telegram', color: '#229ED9' },
+    x:        { icon: '&#120143;', label: 'X (Twitter)', color: '#1DA1F2' },
+};
+
+function getPlatformDisplay(platform) {
+    return PLATFORM_CONFIG[platform] || { icon: '&#127760;', label: platform, color: '#6B7280' };
+}
+
+function getAvatarMeta(avatar) {
+    if (avatar.platform === 'telegram') {
+        return avatar.phone || 'No phone';
+    }
+    // Browser-based platforms
+    const username = avatar.metadata?.username || avatar.username || '';
+    return username || 'No username';
+}
+
+function getAvatarActions(avatar) {
+    if (avatar.platform === 'telegram') {
+        return `
+            <button class="btn btn-secondary btn-sm" onclick="openAvatarSettings('${avatar.id}')">&#9881; Configure</button>
+            <button class="btn btn-destructive btn-sm" onclick="deleteAvatar('${avatar.id}')">Delete</button>
+        `;
+    }
+    // Browser-based platforms
+    return `
+        <button class="btn btn-destructive btn-sm" onclick="deleteAvatar('${avatar.id}')">Delete</button>
+    `;
+}
+
 async function loadAvatars() {
     const container = document.getElementById('avatars-list');
     container.innerHTML = '<div class="loading">Loading avatars...</div>';
-    
+
     try {
         const data = await api.getAvatars();
-        
+
         if (data.avatars.length === 0) {
             container.innerHTML = '<p class="help-text">No avatars configured. Click \"+ Add Avatar\" to get started.</p>';
             return;
         }
-        
-        container.innerHTML = data.avatars.map(avatar => `
-            <div class="avatar-item">
-                <div class="avatar-info">
-                    <h3>
-                        ${avatar.name || avatar.id}
-                        <span class="avatar-status ${avatar.status}">${avatar.status}</span>
-                    </h3>
-                    <div class="avatar-meta">
-                        ${avatar.platform} • ${avatar.phone || 'No phone'}
+
+        container.innerHTML = data.avatars.map(avatar => {
+            const platformInfo = getPlatformDisplay(avatar.platform);
+            const meta = getAvatarMeta(avatar);
+            const actions = getAvatarActions(avatar);
+
+            return `
+                <div class="avatar-item">
+                    <div class="avatar-info">
+                        <h3>
+                            <span class="avatar-platform-icon" style="color: ${platformInfo.color}">${platformInfo.icon}</span>
+                            ${escapeHtml(avatar.name || avatar.id)}
+                            <span class="avatar-status ${avatar.status}">${avatar.status}</span>
+                        </h3>
+                        <div class="avatar-meta">
+                            ${escapeHtml(platformInfo.label)} • ${escapeHtml(meta)}
+                        </div>
+                    </div>
+                    <div class="avatar-actions">
+                        ${actions}
                     </div>
                 </div>
-                <div class="avatar-actions">
-                    <button class="btn btn-secondary btn-sm" onclick="openAvatarSettings('${avatar.id}')">⚙️ Configure</button>
-                    <button class="btn btn-destructive btn-sm" onclick="deleteAvatar('${avatar.id}')">Delete</button>
-                </div>
-            </div>
-        `).join('');
+            `;
+        }).join('');
     } catch (error) {
         container.innerHTML = `<p class="error-message">${error.message}</p>`;
     }
@@ -390,6 +463,141 @@ function closeAddAvatarModal() {
     document.getElementById('add-avatar-modal').classList.remove('active');
     cancelQRAuthFlow();
     resetAvatarModal();
+}
+
+// ====== Add Avatar Dropdown ======
+function toggleAddAvatarDropdown() {
+    const dropdown = document.getElementById('add-avatar-dropdown');
+    dropdown.classList.toggle('open');
+}
+
+function closeAddAvatarDropdown() {
+    const dropdown = document.getElementById('add-avatar-dropdown');
+    dropdown.classList.remove('open');
+}
+
+function handleAddAvatarPlatformSelect(platform) {
+    closeAddAvatarDropdown();
+
+    if (platform === 'telegram') {
+        openAddAvatarModal();
+    } else {
+        openBrowserAuthModal(platform);
+    }
+}
+
+// ====== Browser Auth Modal ======
+function openBrowserAuthModal(platform) {
+    const platformInfo = getPlatformDisplay(platform);
+    document.getElementById('browser-auth-title').textContent = `Add ${platformInfo.label} Avatar`;
+    document.getElementById('browser-auth-modal').dataset.platform = platform;
+
+    // Reset form
+    resetBrowserAuthModal();
+
+    document.body.style.overflow = 'hidden';
+    document.getElementById('browser-auth-modal').classList.add('active');
+}
+
+function closeBrowserAuthModal() {
+    document.body.style.overflow = '';
+    document.getElementById('browser-auth-modal').classList.remove('active');
+    resetBrowserAuthModal();
+}
+
+function resetBrowserAuthModal() {
+    document.getElementById('browser-avatar-id').value = '';
+    document.getElementById('browser-username').value = '';
+    document.getElementById('browser-password').value = '';
+    document.getElementById('browser-challenge-section').style.display = 'none';
+    document.getElementById('browser-challenge-input').value = '';
+    document.getElementById('browser-challenge-prompt').textContent = '';
+    showError('browser-auth-error', '');
+    showSuccess('browser-auth-success', '');
+
+    // Re-enable sign-in button
+    const btn = document.getElementById('start-browser-auth-btn');
+    btn.style.display = 'block';
+    setLoading(btn, false);
+}
+
+async function handleStartBrowserAuth() {
+    const modal = document.getElementById('browser-auth-modal');
+    const platform = modal.dataset.platform;
+    const avatarId = document.getElementById('browser-avatar-id').value.trim();
+    const username = document.getElementById('browser-username').value.trim();
+    const password = document.getElementById('browser-password').value;
+
+    if (!avatarId || !username || !password) {
+        showError('browser-auth-error', 'Please fill in all fields');
+        return;
+    }
+
+    const btn = document.getElementById('start-browser-auth-btn');
+    setLoading(btn, true);
+    showError('browser-auth-error', '');
+
+    try {
+        const response = await api.startBrowserAuth(avatarId, platform, username, password);
+
+        if (response.status === 'challenge_required') {
+            // Show challenge section
+            btn.style.display = 'none';
+            document.getElementById('browser-challenge-section').style.display = 'block';
+            document.getElementById('browser-challenge-prompt').textContent =
+                response.challenge_prompt || 'Additional verification required. Please enter the code.';
+        } else if (response.status === 'authenticated' || response.status === 'active') {
+            showSuccess('browser-auth-success', 'Successfully authenticated!');
+            setTimeout(() => {
+                closeBrowserAuthModal();
+                loadAvatars();
+            }, 2000);
+        } else {
+            showError('browser-auth-error', response.message || 'Authentication failed');
+        }
+    } catch (error) {
+        showError('browser-auth-error', error.message);
+    } finally {
+        setLoading(btn, false);
+    }
+}
+
+async function handleSubmitBrowserChallenge() {
+    const modal = document.getElementById('browser-auth-modal');
+    const avatarId = document.getElementById('browser-avatar-id').value.trim();
+    const challengeResponse = document.getElementById('browser-challenge-input').value.trim();
+
+    if (!challengeResponse) {
+        showError('browser-auth-error', 'Please enter the verification code');
+        return;
+    }
+
+    const btn = document.getElementById('submit-browser-challenge-btn');
+    setLoading(btn, true);
+    showError('browser-auth-error', '');
+
+    try {
+        const response = await api.submitBrowserChallenge(avatarId, challengeResponse);
+
+        if (response.status === 'authenticated' || response.status === 'active') {
+            showSuccess('browser-auth-success', 'Successfully authenticated!');
+            setTimeout(() => {
+                closeBrowserAuthModal();
+                loadAvatars();
+            }, 2000);
+        } else if (response.status === 'challenge_required') {
+            // Another challenge step
+            document.getElementById('browser-challenge-input').value = '';
+            document.getElementById('browser-challenge-prompt').textContent =
+                response.challenge_prompt || 'Additional verification required.';
+        } else {
+            showError('browser-auth-error', response.message || 'Verification failed');
+        }
+    } catch (error) {
+        showError('browser-auth-error', error.message);
+    } finally {
+        setLoading(btn, false);
+    }
 }
 
 function resetAvatarModal() {
@@ -1407,10 +1615,11 @@ function renderFilteredChannels() {
     // Apply filters
     let filteredChannels = sourceManagementState.allChannels;
     
-    // Apply search filter
+    // Apply search filter (search by name and handle/username)
     if (sourceManagementState.searchQuery) {
-        filteredChannels = filteredChannels.filter(channel => 
-            channel.name.toLowerCase().includes(sourceManagementState.searchQuery)
+        filteredChannels = filteredChannels.filter(channel =>
+            channel.name.toLowerCase().includes(sourceManagementState.searchQuery) ||
+            (channel.username && channel.username.toLowerCase().includes(sourceManagementState.searchQuery))
         );
     }
     
@@ -1446,7 +1655,7 @@ function renderFilteredChannels() {
                     <label class="toggle-switch">
                         <input type="checkbox" 
                                ${dialog.isWhitelisted ? 'checked' : ''}
-                               onchange="toggleChannelWhitelist('${dialog.id}', '${escapeHtml(dialog.name)}', '${dialog.type}', this.checked)">
+                               onchange="toggleChannelWhitelist('${dialog.id}', '${escapeHtml(dialog.name)}', '${dialog.type}', '${dialog.username || ''}', this.checked)">
                         <span class="toggle-slider"></span>
                     </label>
                     
@@ -1480,20 +1689,24 @@ async function refreshChannelsList() {
     }
 }
 
-async function toggleChannelWhitelist(channelId, channelName, channelType, isWhitelisted) {
+async function toggleChannelWhitelist(channelId, channelName, channelType, channelUsername, isWhitelisted) {
     if (!sourceManagementState.currentAvatarId) return;
-    
+
     try {
         if (isWhitelisted) {
             // Add to whitelist
+            const sourceData = {
+                id: channelId,
+                name: channelName,
+                type: channelType,
+                frequency_seconds: 300 // Default: 5 minutes
+            };
+            if (channelUsername) {
+                sourceData.username = channelUsername;
+            }
             await api.request(`/avatars/${sourceManagementState.currentAvatarId}/sources`, {
                 method: 'POST',
-                body: JSON.stringify({
-                    id: channelId,
-                    name: channelName,
-                    type: channelType,
-                    frequency_seconds: 300 // Default: 5 minutes
-                })
+                body: JSON.stringify(sourceData)
             });
             
             // Show frequency selector
@@ -1566,32 +1779,60 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('start-agent-btn').addEventListener('click', handleStartAgent);
     document.getElementById('stop-agent-btn').addEventListener('click', handleStopAgent);
     
-    // Avatars
-    document.getElementById('add-avatar-btn').addEventListener('click', openAddAvatarModal);
-    document.querySelector('.modal-close').addEventListener('click', closeAddAvatarModal);
-    
+    // Avatars - Add Avatar Dropdown
+    document.getElementById('add-avatar-btn').addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleAddAvatarDropdown();
+    });
+
+    // Dropdown platform items
+    document.querySelectorAll('#add-avatar-menu .dropdown-item').forEach(item => {
+        item.addEventListener('click', (e) => {
+            e.stopPropagation();
+            handleAddAvatarPlatformSelect(item.dataset.platform);
+        });
+    });
+
+    // Close dropdown on outside click
+    document.addEventListener('click', (e) => {
+        const dropdown = document.getElementById('add-avatar-dropdown');
+        if (dropdown && !dropdown.contains(e.target)) {
+            closeAddAvatarDropdown();
+        }
+    });
+
+    // Telegram Add Avatar Modal
+    document.querySelector('#add-avatar-modal .modal-close').addEventListener('click', closeAddAvatarModal);
+
     document.querySelectorAll('.auth-method-btn').forEach(btn => {
         btn.addEventListener('click', () => switchAuthMethod(btn.dataset.method));
     });
-    
+
     document.getElementById('start-qr-auth-btn').addEventListener('click', handleStartQRAuth);
     document.getElementById('cancel-qr-auth-btn').addEventListener('click', handleCancelQRAuth);
     document.getElementById('start-phone-auth-btn').addEventListener('click', handleStartPhoneAuth);
     document.getElementById('complete-phone-auth-btn').addEventListener('click', handleCompletePhoneAuth);
-    
+
+    // Browser Auth Modal
+    document.getElementById('start-browser-auth-btn').addEventListener('click', handleStartBrowserAuth);
+    document.getElementById('submit-browser-challenge-btn').addEventListener('click', handleSubmitBrowserChallenge);
+
     // Blacklist
     document.getElementById('save-blacklist-btn').addEventListener('click', handleSaveBlacklist);
-    
-    // Source management - refresh button (will be available after modal opens)
-    // Event listener added dynamically when modal is shown
-    
+
     // Close modals on background click
     document.getElementById('add-avatar-modal').addEventListener('click', (e) => {
         if (e.target.id === 'add-avatar-modal') {
             closeAddAvatarModal();
         }
     });
-    
+
+    document.getElementById('browser-auth-modal').addEventListener('click', (e) => {
+        if (e.target.id === 'browser-auth-modal') {
+            closeBrowserAuthModal();
+        }
+    });
+
     document.getElementById('avatar-settings-modal').addEventListener('click', (e) => {
         if (e.target.id === 'avatar-settings-modal') {
             closeAvatarSettingsModal();

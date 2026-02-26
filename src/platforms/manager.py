@@ -34,17 +34,32 @@ class PlatformManager:
                 from .telegram import TelegramHandler
                 self._handlers[platform] = TelegramHandler(self.config_manager)
                 logger.info("Telegram handler created")
-            elif platform == 'discord':
-                # Future: Discord handler
-                logger.warning(f"Discord platform not yet implemented")
-                return None
-            # Add more platforms here as needed
+            elif platform == 'browser' or self._is_browser_platform(platform):
+                from .browser import BrowserHandler
+                handler = BrowserHandler(self.config_manager)
+                # Load login flows from config
+                browser_config = self.config_manager.get_platform_config("browser")
+                if browser_config and browser_config.get("login_flows"):
+                    handler.update_login_flows(browser_config["login_flows"])
+                self._handlers[platform] = handler
+                # Also register under 'browser' key for generic access
+                if platform != 'browser' and 'browser' not in self._handlers:
+                    self._handlers['browser'] = handler
+                logger.info(f"Browser handler created for platform: {platform}")
             else:
                 logger.warning(f"Unknown platform: {platform}")
                 return None
         
         return self._handlers.get(platform)
     
+    def _is_browser_platform(self, platform: str) -> bool:
+        """Check if a platform is browser-based by looking at loaded config."""
+        browser_config = self.config_manager.get_platform_config("browser")
+        if browser_config and browser_config.get("login_flows"):
+            known_platforms = [f.get("platform") for f in browser_config["login_flows"]]
+            return platform in known_platforms
+        return False
+
     async def disconnect_all(self):
         """Disconnect all platform handlers."""
         logger.info("Disconnecting all platform handlers...")

@@ -174,7 +174,7 @@ def main():
     parser.add_argument(
         '--port',
         type=int,
-        default=8080,
+        default=8989,
         help='Port to bind to (default: 8080)'
     )
     

@@ -23,14 +23,25 @@ class TelegramHandler:
         self.config_manager = config_manager
         self._clients: Dict[str, TelegramClient] = {}
         self._pending_auth: Dict[str, TelegramClient] = {}
-        
-        # Get Telegram API credentials from config
-        platform_config = config_manager.get_platform_config("telegram")
-        self.api_id = platform_config.get("telegram_api_id")
-        self.api_hash = platform_config.get("telegram_api_hash")
-        
-        if not self.api_id or not self.api_hash:
-            logger.warning("Telegram API credentials not configured")
+
+    def _get_credentials(self):
+        """Get Telegram API credentials from config (read fresh on each call).
+
+        Returns:
+            Tuple of (api_id: int, api_hash: str)
+
+        Raises:
+            ValueError: If credentials are not configured
+        """
+        platform_config = self.config_manager.get_platform_config("telegram")
+        api_id = platform_config.get("telegram_api_id")
+        api_hash = platform_config.get("telegram_api_hash")
+        if not api_id or not api_hash:
+            raise ValueError(
+                "Telegram API credentials not configured. "
+                "Verify agent token with Hubfeed first."
+            )
+        return int(api_id), api_hash
     
     @staticmethod
     def _serialize_datetime(obj: Any) -> Any:
@@ -86,15 +97,17 @@ class TelegramHandler:
             raise ValueError(f"Avatar {avatar_id} has no session (not authenticated)")
         
         # Create client with saved session
+        api_id, api_hash = self._get_credentials()
         session = StringSession(session_string)
-        client = TelegramClient(session, int(self.api_id), self.api_hash)
+        client = TelegramClient(session, api_id, api_hash)
         
         await client.connect()
         
         # Verify authentication
         if not await client.is_user_authorized():
             await client.disconnect()
-            self.config_manager.update_avatar_status(avatar_id, "auth_required")
+            fail_status = self.config_manager.get_auth_failure_status(avatar_id)
+            self.config_manager.update_avatar_status(avatar_id, fail_status)
             raise Exception(f"Avatar {avatar_id} requires re-authentication")
         
         # Cache client
@@ -118,15 +131,14 @@ class TelegramHandler:
         Raises:
             Exception: If authentication start fails
         """
-        if not self.api_id or not self.api_hash:
-            raise Exception("Telegram API credentials not configured")
-        
         try:
+            api_id, api_hash = self._get_credentials()
+
             # Create new client with empty session
             session = StringSession()
-            client = TelegramClient(session, int(self.api_id), self.api_hash)
+            client = TelegramClient(session, api_id, api_hash)
             await client.connect()
-            
+
             # Request code
             sent_code = await client.send_code_request(phone)
             
@@ -217,16 +229,20 @@ class TelegramHandler:
             # Get user info
             me = await client.get_me()
             
+            # Derive stable avatar_id from Telegram's native user ID
+            stable_avatar_id = f"telegram_{me.id}"
+
             # Save avatar
             avatar_data = {
-                "id": avatar_id,
+                "id": stable_avatar_id,
+                "handle": me.username or me.first_name or str(me.id),
                 "name": f"Telegram - {me.first_name or 'User'}",
                 "platform": "telegram",
                 "phone": phone,
                 "session_string": session_string,
                 "status": "active",
-                "created_at": self.config_manager.get_avatar(avatar_id) and 
-                             self.config_manager.get_avatar(avatar_id).get("created_at") or 
+                "created_at": self.config_manager.get_avatar(stable_avatar_id) and
+                             self.config_manager.get_avatar(stable_avatar_id).get("created_at") or
                              datetime.utcnow().isoformat() + "Z",
                 "last_used_at": datetime.utcnow().isoformat() + "Z",
                 "metadata": {
@@ -237,14 +253,14 @@ class TelegramHandler:
                     "auth_method": "phone"
                 }
             }
-            
+
             self.config_manager.save_avatar(avatar_data)
-            
-            # Move to active clients
-            self._clients[avatar_id] = client
+
+            # Move to active clients under stable ID
+            self._clients[stable_avatar_id] = client
             del self._pending_auth[avatar_id]
-            
-            logger.info(f"Authentication completed for avatar {avatar_id}")
+
+            logger.info(f"Authentication completed for avatar {stable_avatar_id} (temp key: {avatar_id})")
             
             # Log audit event for successful auth
             if self.config_manager.history_logger:
@@ -288,13 +304,12 @@ class TelegramHandler:
         Raises:
             Exception: If QR auth start fails
         """
-        if not self.api_id or not self.api_hash:
-            raise Exception("Telegram API credentials not configured")
-        
         try:
+            api_id, api_hash = self._get_credentials()
+
             # Create new client with empty session
             session = StringSession()
-            client = TelegramClient(session, int(self.api_id), self.api_hash)
+            client = TelegramClient(session, api_id, api_hash)
             await client.connect()
             
             # Request QR login
@@ -379,16 +394,20 @@ class TelegramHandler:
             # Get user info
             me = await client.get_me()
             
+            # Derive stable avatar_id from Telegram's native user ID
+            stable_avatar_id = f"telegram_{me.id}"
+
             # Prepare avatar data
             avatar_data = {
-                "id": avatar_id,
+                "id": stable_avatar_id,
+                "handle": me.username or me.first_name or str(me.id),
                 "name": f"Telegram - {me.first_name or 'User'}",
                 "platform": "telegram",
                 "phone": me.phone if hasattr(me, 'phone') else None,
                 "session_string": session_string,
                 "status": "active",
-                "created_at": self.config_manager.get_avatar(avatar_id) and 
-                             self.config_manager.get_avatar(avatar_id).get("created_at") or 
+                "created_at": self.config_manager.get_avatar(stable_avatar_id) and
+                             self.config_manager.get_avatar(stable_avatar_id).get("created_at") or
                              datetime.utcnow().isoformat() + "Z",
                 "last_used_at": datetime.utcnow().isoformat() + "Z",
                 "metadata": {
@@ -399,15 +418,15 @@ class TelegramHandler:
                     "auth_method": "qr"
                 }
             }
-            
+
             # Save avatar
             self.config_manager.save_avatar(avatar_data)
-            
-            # Move to active clients
-            self._clients[avatar_id] = client
+
+            # Move to active clients under stable ID
+            self._clients[stable_avatar_id] = client
             del self._pending_auth[avatar_id]
-            
-            logger.info(f"QR authentication completed for avatar {avatar_id}")
+
+            logger.info(f"QR authentication completed for avatar {stable_avatar_id} (temp key: {avatar_id})")
             
             # Log audit event for successful QR auth
             if self.config_manager.history_logger:
@@ -563,8 +582,10 @@ class TelegramHandler:
                 # Provide more helpful error message
                 error_msg = str(e)
                 if "Cannot find any entity" in error_msg:
+                    channel_name = params.get("channel_name")
+                    channel_label = f"{channel_name} ({channel_id})" if channel_name else str(channel_id)
                     raise ValueError(
-                        f"Cannot access channel {channel_id}. This could mean:\n"
+                        f"Cannot access channel {channel_label}. This could mean:\n"
                         f"1. The authenticated user has not joined this private channel\n"
                         f"2. The channel ID format is incorrect (expected: channel ID, username, or invite link)\n"
                         f"3. The channel does not exist or has been deleted\n"
@@ -580,14 +601,26 @@ class TelegramHandler:
             min_id=min_id
         )
         
+        # Extract channel entity metadata for injection into each message.
+        # The backend parser already handles a Bot API-style "chat" dict,
+        # but Telethon's to_dict() doesn't include one. Injecting it here
+        # populates channel_username, channel_title, author info, and proper URLs.
+        chat_info = {
+            "id": getattr(channel, 'id', None),
+            "username": getattr(channel, 'username', None),
+            "title": getattr(channel, 'title', None),
+            "type": "channel" if getattr(channel, 'broadcast', False) else "supergroup"
+        }
+
         # Convert messages to dict and serialize datetime objects
         result = []
         for msg in messages:
             msg_dict = msg.to_dict()
             # Recursively convert datetime objects to ISO strings
             serialized_msg = self._serialize_datetime(msg_dict)
+            serialized_msg["chat"] = chat_info
             result.append(serialized_msg)
-        
+
         return result
     
     async def _get_channel_info(self, client: TelegramClient, params: Dict[str, Any]) -> List[Dict[str, Any]]:

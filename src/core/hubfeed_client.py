@@ -40,7 +40,7 @@ class HubfeedClient:
             headers = {
                 "User-Agent": f"HubfeedAgent/{__version__}",
                 "X-Agent-Version": __version__,
-                "X-Agent-Capabilities": "telegram",
+                "X-Agent-Capabilities": "telegram,browser",
             }
             
             if token:
@@ -75,13 +75,16 @@ class HubfeedClient:
         # Prepare capabilities payload
         capabilities = {
             "version": __version__,
-            "platforms": ["telegram"],
+            "platforms": ["telegram", "browser"],
             "commands": {
                 "telegram": [
                     "telegram.get_messages",
                     "telegram.get_channel_info",
                     "telegram.list_dialogs",
                     "telegram.search_messages"
+                ],
+                "browser": [
+                    "browser.xhr_capture"
                 ]
             }
         }
@@ -129,37 +132,49 @@ class HubfeedClient:
         """
         client = await self._get_client()
         
-        # Prepare avatar data (exclude sensitive session info)
+        # Prepare avatar data (exclude sensitive session info and credentials)
         sync_data = []
         for avatar in avatars:
             # Get nested metadata from avatar
             avatar_metadata = avatar.get("metadata", {})
-            
+
             # Get sources (allowed channels) - only include essential fields
             sources = avatar.get("sources", {})
             sources_items = []
             for source in sources.get("items", []):
-                sources_items.append({
+                item = {
                     "id": source.get("id"),
                     "name": source.get("name"),
                     "type": source.get("type"),
                     "frequency_seconds": source.get("frequency_seconds")
-                })
-            
+                }
+                if source.get("username"):
+                    item["username"] = source["username"]
+                sources_items.append(item)
+
+            # Build metadata -- never include credentials or session_string
+            metadata = {
+                "phone": avatar.get("phone"),
+                "created_at": avatar.get("created_at"),
+                "last_used_at": avatar.get("last_used_at"),
+                "user_id": avatar_metadata.get("user_id"),
+                "username": avatar_metadata.get("username"),
+                "sources_enabled": sources.get("enabled", False),
+                "sources": sources_items,
+            }
+
+            # Include browser-specific metadata (non-sensitive)
+            if avatar_metadata.get("auth_method") == "browser_login":
+                metadata["auth_method"] = "browser_login"
+                metadata["profile_dir"] = avatar_metadata.get("profile_dir")
+
             sync_data.append({
                 "id": avatar.get("id"),
                 "name": avatar.get("name"),
+                "handle": avatar.get("handle"),
                 "platform": avatar.get("platform"),
                 "status": avatar.get("status"),
-                "metadata": {
-                    "phone": avatar.get("phone"),
-                    "created_at": avatar.get("created_at"),
-                    "last_used_at": avatar.get("last_used_at"),
-                    "user_id": avatar_metadata.get("user_id"),  # Telegram user ID
-                    "username": avatar_metadata.get("username"),  # Telegram username
-                    "sources_enabled": sources.get("enabled", False),
-                    "sources": sources_items  # Allowed channels/sources
-                }
+                "metadata": metadata,
             })
         
         try:
