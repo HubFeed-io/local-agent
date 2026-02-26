@@ -7,7 +7,7 @@ services:
       dockerfile: Dockerfile
     container_name: hubfeed-agent
     ports:
-      - "8989:8080"
+      - "8989:8989"
     volumes:
       # Persistent storage for configuration and avatars
       - ./data:/app/data
