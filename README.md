@@ -83,7 +83,7 @@ EOF
 docker compose up -d
 ```
 
-3. **Access the UI** at `http://localhost:8080`
+3. **Access the UI** at `http://localhost:8989`
 
 4. **View logs**:
 ```bash
