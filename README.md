@@ -160,7 +160,7 @@ python -m src.main --host 127.0.0.1 --port 8989
 python -m src.main --username admin --password admin --host 127.0.0.1 --port 8989
 ```
 
-4. Access the web UI at `http://localhost:8080`
+4. Access the web UI at `http://localhost:8989`
 
 #### Command Line Arguments
 
@@ -169,7 +169,7 @@ python -m src.main --username admin --password admin --host 127.0.0.1 --port 898
 | `--username` | Override `AGENT_UI_USERNAME` env var | `admin` |
 | `--password` | Override `AGENT_UI_PASSWORD` env var | `changeme` |
 | `--host` | Bind address | `0.0.0.0` |
-| `--port` | Bind port | `8080` |
+| `--port` | Bind port | `8989` |
 
 ## Configuration
 
@@ -183,7 +183,7 @@ python -m src.main --username admin --password admin --host 127.0.0.1 --port 898
 
 ### First Time Setup
 
-1. Open the web UI at `http://localhost:8080`
+1. Open the web UI at `http://localhost:8989`
 2. Log in with the default credentials
 3. Navigate to the **Setup** tab
 4. Enter your Hubfeed API token (generated from your Hubfeed account)
