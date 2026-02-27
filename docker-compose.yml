@@ -6,8 +6,10 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: hubfeed-agent
+    shm_size: '2gb'
     ports:
       - "8989:8989"
+      - "5900:5900"
     volumes:
       # Persistent storage for configuration and avatars
       - ./data:/app/data

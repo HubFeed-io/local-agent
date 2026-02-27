@@ -62,7 +62,8 @@ async def lifespan(app: FastAPI):
     
     
     hubfeed_client = HubfeedClient(config_manager)
-    logger.info("Hubfeed client initialized")
+    base_url = os.environ.get("HUBFEED_API_URL", "https://hubfeed.io")
+    logger.info(f"Hubfeed client initialized ({base_url})")
     
     executor = JobExecutor(config_manager, history_logger)
     logger.info("Job executor initialized")

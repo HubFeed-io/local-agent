@@ -56,14 +56,9 @@ class BrowserSession:
         """Launch browser with persistent profile directory."""
         self.profile_path.mkdir(parents=True, exist_ok=True)
 
-        headless = os.environ.get("BROWSER_HEADLESS", "true").lower() == "true"
-
-        self._browser = await uc.start(
-            user_data_dir=str(self.profile_path),
-            headless=headless,
-        )
+        self._browser = await uc.start()
         self._tab = await self._browser.get("about:blank")
-        logger.info(f"Browser launched for avatar {self.avatar_id} (headless={headless})")
+        logger.info(f"Browser launched for avatar {self.avatar_id}")
 
     def is_alive(self) -> bool:
         """Check if browser process is still running."""
@@ -140,8 +135,10 @@ class BrowserSession:
         steps = self.login_flow["steps"]
 
         # Navigate to login page
+        logger.info(f"[{self.avatar_id}] Navigating to {login_url}")
         self._tab = await self._browser.get(login_url)
-        await asyncio.sleep(3)
+        await asyncio.sleep(1)
+        logger.debug(f"[{self.avatar_id}] Page loaded, current URL: {self._tab.target.url}")
 
         for step in steps:
             step_type = step["type"]
@@ -149,30 +146,53 @@ class BrowserSession:
 
             try:
                 if step_type == "wait":
-                    await asyncio.sleep(step.get("wait_seconds", 1))
+                    total_wait = step.get("wait_seconds", 1)
+                    if total_wait > 5:
+                        # Poll URL every second instead of blind sleep
+                        logger.debug(f"[{self.avatar_id}] Step '{step_id}': polling URL for up to {total_wait}s")
+                        elapsed = 0
+                        while elapsed < total_wait:
+                            await asyncio.sleep(1)
+                            elapsed += 1
+                            current_url = str(self._tab.target.url).lower()
+                            if success_pattern.lower() in current_url:
+                                logger.info(
+                                    f"[{self.avatar_id}] Login succeeded during wait step '{step_id}' "
+                                    f"after {elapsed}s"
+                                )
+                                return {"status": "success"}
+                        logger.debug(f"[{self.avatar_id}] Step '{step_id}': poll finished without success match")
+                    else:
+                        logger.debug(f"[{self.avatar_id}] Step '{step_id}': waiting {total_wait}s")
+                        await asyncio.sleep(total_wait)
 
                 elif step_type == "input":
+                    selector = step.get("selector")
+                    cred_field = step.get("credential_field")
+                    logger.debug(f"[{self.avatar_id}] Step '{step_id}': input field={cred_field} selector='{selector}'")
                     element = await self._find_element(
-                        step.get("selector"),
+                        selector,
                         step.get("selector_fallback")
                     )
                     if not element:
                         if step.get("optional"):
-                            logger.debug(f"Optional input step {step_id} skipped (element not found)")
+                            logger.debug(f"[{self.avatar_id}] Step '{step_id}': optional input skipped (element not found)")
                             continue
+                        logger.warning(f"[{self.avatar_id}] Step '{step_id}': element not found, aborting")
                         return {"status": "failed", "error": f"Element not found for step {step_id}"}
 
-                    cred_field = step.get("credential_field")
-                    value = credentials.get(cred_field, "")
-                    await element.send_keys(value)
+                    await element.send_keys(credentials.get(cred_field, ""))
+                    logger.debug(f"[{self.avatar_id}] Step '{step_id}': value entered")
 
                     if step.get("press_enter"):
                         await asyncio.sleep(0.3)
                         await self._press_enter()
+                        logger.debug(f"[{self.avatar_id}] Step '{step_id}': pressed Enter")
 
                 elif step_type == "click":
                     find_text = step.get("find_text")
                     selector = step.get("selector")
+                    logger.debug(f"[{self.avatar_id}] Step '{step_id}': click find_text='{find_text}' selector='{selector}'")
 
                     element = None
                     if find_text:
@@ -185,19 +205,23 @@ class BrowserSession:
 
                     if not element:
                         if step.get("optional"):
-                            logger.debug(f"Optional click step {step_id} skipped (element not found)")
+                            logger.debug(f"[{self.avatar_id}] Step '{step_id}': optional click skipped (element not found)")
                             continue
+                        logger.warning(f"[{self.avatar_id}] Step '{step_id}': button not found, aborting")
                         return {"status": "failed", "error": f"Button not found for step {step_id}"}
 
                     await element.click()
+                    logger.debug(f"[{self.avatar_id}] Step '{step_id}': clicked")
 
                 elif step_type == "check_challenge":
                     challenge = step.get("challenge", {})
                     challenge_sel = challenge.get("selector")
+                    logger.debug(f"[{self.avatar_id}] Step '{step_id}': checking for challenge selector='{challenge_sel}'")
                     if challenge_sel:
                         try:
                             element = await self._tab.select(challenge_sel)
                             if element:
+                                logger.info(f"[{self.avatar_id}] Step '{step_id}': challenge detected")
                                 return {
                                     "status": "challenge_required",
                                     "challenge_prompt": challenge.get("prompt", "Verification required"),
@@ -207,27 +231,32 @@ class BrowserSession:
                                 }
                         except Exception:
                             pass  # No challenge, continue
+                    logger.debug(f"[{self.avatar_id}] Step '{step_id}': no challenge found, continuing")
 
                 # Post-step delay
                 wait = step.get("wait_seconds", 0)
                 if wait:
+                    logger.debug(f"[{self.avatar_id}] Step '{step_id}': post-step wait {wait}s")
                     await asyncio.sleep(wait)
+
+                logger.debug(f"[{self.avatar_id}] Step '{step_id}' completed, URL: {self._tab.target.url}")
 
             except Exception as e:
                 if step.get("optional"):
-                    logger.warning(f"Optional step {step_id} failed: {e}")
+                    logger.warning(f"[{self.avatar_id}] Optional step '{step_id}' failed: {e}")
                     continue
+                logger.error(f"[{self.avatar_id}] Step '{step_id}' failed: {e}")
                 return {"status": "failed", "error": f"Step {step_id} failed: {str(e)}"}
 
         # Check success
-        await asyncio.sleep(2)
+        await asyncio.sleep(1)
         current_url = str(self._tab.target.url).lower()
         if success_pattern.lower() in current_url:
-            logger.info(f"Login successful for avatar {self.avatar_id}")
+            logger.info(f"[{self.avatar_id}] Login successful")
             return {"status": "success"}
         else:
             logger.warning(
-                f"Login may have failed for {self.avatar_id}. "
+                f"[{self.avatar_id}] Login may have failed. "
                 f"Current URL: {self._tab.target.url}"
             )
             return {
