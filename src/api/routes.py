@@ -124,22 +124,24 @@ async def get_config():
 @router.post("/config")
 async def update_config(update: ConfigUpdate):
     """Update configuration."""
-    config_manager, _, _, _, agent_loop, _ = get_globals()
+    config_manager, hubfeed_client, _, _, agent_loop, _ = get_globals()
     updates = {}
 
     if update.token is not None:
         updates["token"] = update.token
-    
+
     if not updates:
         raise HTTPException(status_code=400, detail="No updates provided")
-    
+
     success = config_manager.update_config(**updates)
-    
+
     if not success:
         raise HTTPException(status_code=500, detail="Failed to update configuration")
-    
+
     # If token changed, restart agent loop to pick up the new token
     if "token" in updates and agent_loop:
+        # Always close cached HTTP client so it picks up the new token
+        await hubfeed_client.close()
         if agent_loop.is_running:
             logger.info("Token updated, restarting agent loop...")
             await agent_loop.stop()
