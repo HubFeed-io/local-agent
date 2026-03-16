@@ -98,11 +98,16 @@ class HubfeedClient:
             
             # Update local config with received platform config
             if "config" in data:
-                self.config_manager.update_config(
+                config_update = dict(
                     platform_config=data["config"],
                     verified_at=datetime.utcnow().isoformat() + "Z"
                 )
-            
+                # Persist latest version info for the update banner
+                latest = data["config"].get("latest_agent_version")
+                if latest:
+                    config_update["latest_agent_version"] = latest
+                self.config_manager.update_config(**config_update)
+
             logger.info("Token verified successfully")
             return data
             

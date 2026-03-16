@@ -13,6 +13,7 @@ A lightweight, privacy-focused Docker application that runs on your machine, ena
 - [Features](#features)
 - [API Reference](#api-reference)
 - [Security](#security)
+- [Updating](#updating)
 - [Troubleshooting](#troubleshooting)
 
 ## Overview
@@ -235,6 +236,29 @@ The agent supports two authentication methods:
 - Health check endpoint for monitoring
 - Automatic token re-verification every 24 hours
 - Avatar sync to backend every 5 minutes
+
+## Updating
+
+The agent checks for new versions automatically. When an update is available, a banner appears in the web UI with instructions.
+
+To update, run the appropriate script from the **host machine** (not inside the container):
+
+**Linux / macOS:**
+```bash
+./update.sh
+```
+
+**Windows (PowerShell):**
+```powershell
+.\update.ps1
+```
+
+Both scripts pull the latest Docker image and recreate the container. Your data (`config.json`, avatars, sessions, logs) is preserved across updates since it lives in the mounted `data/` and `logs/` volumes.
+
+You can also update manually:
+```bash
+docker compose pull && docker compose up -d
+```
 
 ## Security
 

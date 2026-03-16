@@ -1,6 +1,6 @@
 """Browser platform handler using NoDriver (undetected-chromedriver).
 
-Provides browser-based data collection for platforms like X (Twitter).
+Provides browser-based data collection for platforms like X (Twitter), LinkedIn, etc.
 Login flows are configured on the backend and executed generically by this handler.
 Session persistence is achieved via Chrome profile directories.
 """
@@ -30,6 +30,9 @@ PLATFORM_CSRF_COOKIES: Dict[str, List[Dict[str, str]]] = {
     "twitter": [
         {"name": "ct0", "domain": ".x.com"},
         {"name": "ct0", "domain": ".twitter.com"},
+    ],
+    "linkedin": [
+        {"name": "JSESSIONID", "domain": ".www.linkedin.com"},
     ],
 }
 
@@ -273,6 +276,8 @@ class BrowserSession:
         try:
             if self.platform in ("x", "twitter"):
                 return await self._extract_twitter_identity()
+            elif self.platform == "linkedin":
+                return await self._extract_linkedin_identity()
         except Exception as e:
             logger.warning(f"Failed to extract platform identity for {self.platform}: {e}")
         return None
@@ -289,6 +294,24 @@ class BrowserSession:
                     logger.info(f"Extracted X user ID: {user_id}")
                     return {"platform_user_id": user_id}
         logger.warning("twid cookie not found after X login")
+        return None
+
+    async def _extract_linkedin_identity(self) -> Optional[Dict[str, str]]:
+        """Extract LinkedIn member ID via page evaluation."""
+        scripts = [
+            "document.querySelector('meta[name=\"user\"]')?.content",
+            "document.body?.getAttribute('data-member-id')",
+        ]
+        for script in scripts:
+            try:
+                result = await self._tab.evaluate(script, await_promise=False)
+                if result and str(result) != "None":
+                    member_id = str(result)
+                    logger.info(f"Extracted LinkedIn member ID: {member_id}")
+                    return {"platform_user_id": member_id}
+            except Exception:
+                continue
+        logger.warning("Could not extract LinkedIn member ID after login")
         return None
 
     async def submit_challenge_response(
@@ -731,7 +754,7 @@ class BrowserHandler:
 
         Args:
             avatar_id: Unique avatar identifier.
-            platform: Platform key (e.g., 'x').
+            platform: Platform key (e.g., 'x', 'linkedin').
             credentials: Dict with credential values (e.g., username, password).
 
         Returns:

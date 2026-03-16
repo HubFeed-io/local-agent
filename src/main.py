@@ -144,10 +144,27 @@ else:
 async def health():
     """Health check endpoint."""
     health_status = await agent_loop.health_check() if agent_loop else {}
-    
+
+    # Check for available update
+    update_available = False
+    latest_version = None
+    if config_manager:
+        cfg = config_manager.get_config()
+        latest_version = cfg.get("latest_agent_version")
+        if latest_version:
+            try:
+                update_available = (
+                    tuple(int(x) for x in latest_version.split('.'))
+                    > tuple(int(x) for x in __version__.split('.'))
+                )
+            except (ValueError, AttributeError):
+                pass
+
     return {
         "status": "healthy" if agent_loop and agent_loop.is_running else "degraded",
         "version": __version__,
+        "latest_version": latest_version,
+        "update_available": update_available,
         "agent": health_status
     }
 

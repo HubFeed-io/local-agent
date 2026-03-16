@@ -2,6 +2,7 @@ version: '3.8'
 
 services:
   hubfeed-agent:
+    image: ghcr.io/aegis/hubfeed/agent:latest
     build:
       context: .
       dockerfile: Dockerfile

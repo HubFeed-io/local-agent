@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Exo+2:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/styles.css?v=3">
+    <link rel="stylesheet" href="/styles.css?v=4">
 </head>
 <body>
     <!-- Login Page -->
@@ -82,6 +82,21 @@
             <div class="header-gradient-line"></div>
         </header>
 
+        <!-- Update Banner -->
+        <div id="update-banner" class="update-banner" style="display: none;">
+            <div class="update-banner-content">
+                <span class="update-banner-icon">&#8593;</span>
+                <span class="update-banner-text">
+                    Update available: <strong id="update-version"></strong>
+                    <span class="update-banner-current">(current: <span id="current-version"></span>)</span>
+                </span>
+                <span class="update-banner-instructions">
+                    Run <code>./update.sh</code> or <code>update.ps1</code> on the host to update.
+                </span>
+                <button id="dismiss-update-btn" class="btn btn-ghost btn-sm update-dismiss">&times;</button>
+            </div>
+        </div>
+
         <!-- Tab Navigation -->
         <nav class="tabs">
             <button class="tab active" data-tab="setup">
@@ -149,6 +164,9 @@
                                 </button>
                                 <button class="dropdown-item" data-platform="x">
                                     <span class="dropdown-item-icon">&#120143;</span> X (Twitter)
+                                </button>
+                                <button class="dropdown-item" data-platform="linkedin">
+                                    <span class="dropdown-item-icon">&#128188;</span> LinkedIn
                                 </button>
                             </div>
                         </div>
@@ -261,7 +279,7 @@
                     </div>
                 </div>
 
-                <!-- Browser Auth Modal (X, etc.) -->
+                <!-- Browser Auth Modal (X, LinkedIn, etc.) -->
                 <div id="browser-auth-modal" class="modal">
                     <div class="modal-content">
                         <div class="modal-header">
@@ -386,6 +404,6 @@
         </main>
     </div>
 
-    <script src="/app.js?v=3"></script>
+    <script src="/app.js?v=4"></script>
 </body>
 </html>

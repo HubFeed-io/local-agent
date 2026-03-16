@@ -13,10 +13,19 @@ import base64
 from pathlib import Path
 
 from src.platforms import TelegramHandler
+from src.__version__ import __version__
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _is_update_available(latest: str, current: str) -> bool:
+    """Check if latest version is newer than current (semver comparison)."""
+    try:
+        return tuple(int(x) for x in latest.split('.')) > tuple(int(x) for x in current.split('.'))
+    except (ValueError, AttributeError, TypeError):
+        return False
 
 
 # Helper function to get global instances
@@ -347,7 +356,7 @@ async def telegram_qr_auth_cancel(avatar_id: str):
 
 class BrowserAuthStart(BaseModel):
     avatar_id: str
-    platform: str       # 'x', etc.
+    platform: str       # 'x', 'linkedin', etc.
     username: str
     password: str
 
@@ -531,18 +540,25 @@ async def get_history(
 @router.get("/status")
 async def get_status():
     """Get agent status."""
-    _, _, _, _, agent_loop, _ = get_globals()
+    config_manager, _, _, _, agent_loop, _ = get_globals()
     if not agent_loop:
         return {
             "status": "not_initialized",
             "message": "Agent loop not initialized"
         }
-    
+
     health = await agent_loop.health_check()
-    
+
+    # Check for update availability
+    config = config_manager.get_config()
+    latest_version = config.get("latest_agent_version")
+    update_available = _is_update_available(latest_version, __version__)
+
     return {
         "status": "running" if health["running"] else "stopped",
-        "version": "1.0.0",  # TODO: Import from __version__
+        "version": __version__,
+        "latest_version": latest_version,
+        "update_available": update_available,
         **health
     }
 

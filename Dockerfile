@@ -22,12 +22,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-liberation \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Google Chrome
-RUN wget --no-check-certificate https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
-    && dpkg -i google-chrome-stable_current_amd64.deb || true \
-    && apt-get update && apt-get install -fy --no-install-recommends \
-    && rm -rf /var/lib/apt/lists/* google-chrome-stable_current_amd64.deb \
-    && which google-chrome-stable || (echo 'Google Chrome was not installed' && exit 1)
+# Install Chromium browser (works on both amd64 and arm64)
+# Ubuntu 22.04's chromium-browser is a snap wrapper that doesn't work in Docker,
+# so we install real Chromium .deb from Debian bookworm repos instead.
+RUN echo "deb http://deb.debian.org/debian bookworm main" > /etc/apt/sources.list.d/debian-bookworm.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends -t bookworm chromium \
+    && rm -rf /var/lib/apt/lists/* /etc/apt/sources.list.d/debian-bookworm.list \
+    && which chromium
 
 # Set up VNC password (1234)
 RUN mkdir -p ~/.vnc && x11vnc -storepasswd 1234 ~/.vnc/passwd
@@ -55,7 +57,7 @@ RUN chmod +x /scripts/entrypoint.sh
 # Set environment variables
 ENV PATH="/scripts:/py/bin:$PATH" \
     DISPLAY=:0 \
-    PYTHONUNBUFFERED=1 
+    PYTHONUNBUFFERED=1
 
 
 ENTRYPOINT ["entrypoint.sh"]

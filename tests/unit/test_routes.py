@@ -571,7 +571,8 @@ class TestBrowserPlatformEndpoints:
         """Should return available browser platforms."""
         mock_config_manager.get_platform_config.return_value = {
             "login_flows": [
-                {"platform": "x", "display_name": "X (Twitter)", "credential_fields": ["username", "password"]}
+                {"platform": "x", "display_name": "X (Twitter)", "credential_fields": ["username", "password"]},
+                {"platform": "linkedin", "display_name": "LinkedIn"}
             ]
         }
 
@@ -579,7 +580,7 @@ class TestBrowserPlatformEndpoints:
 
         assert response.status_code == 200
         platforms = response.json()["platforms"]
-        assert len(platforms) == 1
+        assert len(platforms) == 2
         assert platforms[0]["platform"] == "x"
 
     def test_get_available_platforms_empty(self, client):

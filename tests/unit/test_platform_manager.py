@@ -106,7 +106,7 @@ class TestGetHandler:
         """Should create BrowserHandler when platform is in login_flows config."""
         config_manager = Mock()
         config_manager.get_platform_config.return_value = {
-            "login_flows": [{"platform": "x"}]
+            "login_flows": [{"platform": "x"}, {"platform": "linkedin"}]
         }
         pm = PlatformManager(config_manager)
 
@@ -176,11 +176,12 @@ class TestIsBrowserPlatform:
         """Should return True when platform found in login_flows."""
         config_manager = Mock()
         config_manager.get_platform_config.return_value = {
-            "login_flows": [{"platform": "x"}]
+            "login_flows": [{"platform": "x"}, {"platform": "linkedin"}]
         }
         pm = PlatformManager(config_manager)
 
         assert pm._is_browser_platform("x") is True
+        assert pm._is_browser_platform("linkedin") is True
 
     def test_returns_false_when_platform_not_in_flows(self):
         """Should return False when platform not in login_flows."""

@@ -178,11 +178,11 @@ class TestUpdateLoginFlows:
         """Should accept list of dict flows."""
         flows = [
             {"platform": "x", "display_name": "X", "steps": []},
-            {"platform": "reddit", "display_name": "Reddit", "steps": []}
+            {"platform": "linkedin", "display_name": "LinkedIn", "steps": []}
         ]
         browser_handler.update_login_flows(flows)
         assert "x" in browser_handler._login_flows
-        assert "reddit" in browser_handler._login_flows
+        assert "linkedin" in browser_handler._login_flows
 
     def test_update_from_pydantic_models(self, browser_handler):
         """Should accept pydantic model-like objects."""

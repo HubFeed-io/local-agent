@@ -363,6 +363,7 @@ async function handleStopAgent() {
 const PLATFORM_CONFIG = {
     telegram: { icon: '&#128172;', label: 'Telegram', color: '#229ED9' },
     x:        { icon: '&#120143;', label: 'X (Twitter)', color: '#1DA1F2' },
+    linkedin: { icon: '&#128188;', label: 'LinkedIn', color: '#0A66C2' }
 };
 
 function getPlatformDisplay(platform) {
@@ -1438,6 +1439,18 @@ async function loadStatus() {
             ? '<span class="status-badge running">Running</span>'
             : '<span class="status-badge stopped">Stopped</span>';
         
+        let updateHtml = '';
+        if (data.update_available && data.latest_version) {
+            updateHtml = `
+                <div class="status-item" style="border-left: 3px solid var(--primary); padding-left: 0.75rem;">
+                    <span class="status-label">Update</span>
+                    <span class="status-value" style="color: hsl(219 100% 75%);">
+                        v${data.latest_version} available &mdash; run <code style="background:var(--gray-800);padding:0.15rem 0.4rem;border-radius:0.25rem;font-family:var(--font-mono);font-size:0.8rem;">./update.sh</code> or <code style="background:var(--gray-800);padding:0.15rem 0.4rem;border-radius:0.25rem;font-family:var(--font-mono);font-size:0.8rem;">update.ps1</code>
+                    </span>
+                </div>
+            `;
+        }
+
         container.innerHTML = `
             <div class="status-item">
                 <span class="status-label">Status</span>
@@ -1447,6 +1460,7 @@ async function loadStatus() {
                 <span class="status-label">Version</span>
                 <span class="status-value">${data.version || 'Unknown'}</span>
             </div>
+            ${updateHtml}
             <div class="status-item">
                 <span class="status-label">Last Poll</span>
                 <span class="status-value">${data.last_poll_at || 'Never'}</span>
@@ -1456,6 +1470,8 @@ async function loadStatus() {
                 <span class="status-value">${data.jobs_executed || 0}</span>
             </div>
         `;
+
+        checkUpdateBanner(data);
     } catch (error) {
         container.innerHTML = `<p class="error-message">${error.message}</p>`;
     }
@@ -1474,6 +1490,7 @@ async function updateHeaderStatus() {
         const isRunning = data.status === 'running';
         badge.className = `header-status-badge ${isRunning ? 'running' : 'stopped'}`;
         text.textContent = isRunning ? 'Running' : 'Stopped';
+        checkUpdateBanner(data);
     } catch {
         badge.className = 'header-status-badge unknown';
         text.textContent = 'Unknown';
@@ -1491,6 +1508,33 @@ function stopHeaderStatusPolling() {
         clearInterval(headerStatusInterval);
         headerStatusInterval = null;
     }
+}
+
+// ====== Update Banner ======
+function checkUpdateBanner(statusData) {
+    const banner = document.getElementById('update-banner');
+    if (!banner) return;
+
+    if (statusData.update_available && statusData.latest_version) {
+        // Check if user dismissed this specific version
+        const dismissed = sessionStorage.getItem('dismissed_update_version');
+        if (dismissed === statusData.latest_version) {
+            banner.style.display = 'none';
+            return;
+        }
+        document.getElementById('update-version').textContent = 'v' + statusData.latest_version;
+        document.getElementById('current-version').textContent = 'v' + statusData.version;
+        banner.style.display = 'block';
+    } else {
+        banner.style.display = 'none';
+    }
+}
+
+function dismissUpdateBanner() {
+    const banner = document.getElementById('update-banner');
+    const versionEl = document.getElementById('update-version');
+    if (banner) banner.style.display = 'none';
+    if (versionEl) sessionStorage.setItem('dismissed_update_version', versionEl.textContent.replace('v', ''));
 }
 
 // ====== Avatar Source Management (New UX) ======
@@ -1819,6 +1863,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Blacklist
     document.getElementById('save-blacklist-btn').addEventListener('click', handleSaveBlacklist);
+
+    // Update banner dismiss
+    document.getElementById('dismiss-update-btn')?.addEventListener('click', dismissUpdateBanner);
 
     // Close modals on background click
     document.getElementById('add-avatar-modal').addEventListener('click', (e) => {
