@@ -25,10 +25,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install Chromium browser (works on both amd64 and arm64)
 # Ubuntu 22.04's chromium-browser is a snap wrapper that doesn't work in Docker,
 # so we install real Chromium .deb from Debian bookworm repos instead.
-RUN echo "deb http://deb.debian.org/debian bookworm main" > /etc/apt/sources.list.d/debian-bookworm.list \
+RUN gpg --keyserver keyserver.ubuntu.com --recv-keys 6ED0E7B82643E131 F8D2585B8783D481 \
+    && gpg --export 6ED0E7B82643E131 F8D2585B8783D481 > /usr/share/keyrings/debian-bookworm.gpg \
+    && echo "deb [signed-by=/usr/share/keyrings/debian-bookworm.gpg] http://deb.debian.org/debian bookworm main" > /etc/apt/sources.list.d/debian-bookworm.list \
     && apt-get update \
     && apt-get install -y --no-install-recommends -t bookworm chromium \
-    && rm -rf /var/lib/apt/lists/* /etc/apt/sources.list.d/debian-bookworm.list \
+    && rm -rf /var/lib/apt/lists/* /etc/apt/sources.list.d/debian-bookworm.list /root/.gnupg \
     && which chromium
 
 # Set up VNC password (1234)
